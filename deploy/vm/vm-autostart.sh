@@ -170,7 +170,7 @@ command -v timeout >/dev/null || fail "timeout missing (brew install coreutils) 
 exec 9>"$LOCK"
 flock -n 9 || { echo "another autostart run holds the lock; leaving"; exit 0; }
 
-# A killed restore never ran its own cleanup, and after a power loss the volume
+# SIGKILL or a power loss skips a restore's own cleanup, and after a power loss the volume
 # survives, so step 6 may never run again: every run sweeps, not only a restore.
 sweep_restore_work_dir
 
