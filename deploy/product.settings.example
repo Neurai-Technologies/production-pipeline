@@ -95,6 +95,11 @@ SITE_RELEASE_HOOK=deploy/site-release.sh
 DB_BACKUP_USER=myproduct_backup
 # Days the encrypted log archives are kept locally. Default: 420.
 LOG_ARCHIVE_KEEP_DAYS=420
+# Optional. off skips the local prune, for a product whose mover takes the
+# archives and applies retention; that mover must watch free space, since a
+# full disk also stops the database backups beside them. Empty or on: prune at
+# LOG_ARCHIVE_KEEP_DAYS.
+LOG_ARCHIVE_PRUNE=
 # Compose project whose containers' logs are archived. Default: COMPOSE_PROJECT.
 LOG_ARCHIVE_PROJECT=myproduct
 

@@ -88,7 +88,7 @@ services:
 
   logarchive:
     # The backup image again (openssl, curl, tar): a nightly encrypted archive
-    # of every container's docker logs, kept 420 days; see backup/logarchive.sh.
+    # of every container's docker logs, kept as backup/logarchive.sh says.
     build:
       context: ../ci-cd-library/deploy/backup
       args:

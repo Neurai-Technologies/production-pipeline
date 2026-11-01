@@ -60,6 +60,7 @@ FAKE = {
     "OPS_PROFILE": "fakeops",
     # The archive's own project is the stack's unless a product says otherwise.
     "LOG_ARCHIVE_PROJECT": "fakestack",
+    "LOG_ARCHIVE_PRUNE": "",
     "POSTGRES_INIT_DIR": "deploy/fake-init",
     "BACKUP_MIRROR_EXTRA_SOURCES": "",
 }

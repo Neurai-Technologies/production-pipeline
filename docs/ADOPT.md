@@ -159,7 +159,14 @@ SHA differs, stop: the tag does not exist or is not the release you meant.
    `@sha256:` digest for a stronger pin) whose major equals the product's
    database server major, because pg_dump refuses a newer server. The
    library's default is the 16 line; a product on 17 sets a 17 tag in both
-   places.
+   places. `logarchive` prunes its local archives each night at
+   `LOG_ARCHIVE_KEEP_DAYS`. A product whose mover job takes the archives to a
+   store that applies retention sets `LOG_ARCHIVE_PRUNE=off`, so an absent
+   store cannot cost archives never moved. That mover must watch free space:
+   archives sit under `BACKUP_DIR/logs`, beside the dumps, so a full disk
+   stops the database backups too. It also owns the product's retention
+   promise, as archives can outlive it while the store is away. Empty or `on`
+   keeps the prune; any other value refuses at startup.
 5. Add the hooks if the product needs them, as executable files at the
    paths `product.settings` names: `PRE_DEPLOY_HOOK` (run before anything is
    replaced, such as a database backup, the SHA as `$1`; its failure fails
