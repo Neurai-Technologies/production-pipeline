@@ -313,6 +313,26 @@ SHA differs, stop: the tag does not exist or is not the release you meant.
    - To add the mirror to an installed autostart, unload the autostart
      agent and run the installer again (loading runs the autostart once;
      with the volume present it only reports).
+
+   With or without the mirror, an auto-restore writes the dump's plaintext
+   to the default temp folder unless `RESTORE_WORK_DIR` names another. Put
+   that folder on the disk meant to hold plaintext, mode 700, owned by the
+   user, with no ACL, used by this product's auto-restore only; anything else
+   refuses the restore, and a bad folder also alerts at login (a path with
+   nothing there stays silent, as an absent disk must). Its parent folder must
+   be writable only by the user. On a disk mounted `noowners`, as external disks often are, the
+   owner and mode checks pass without keeping out other local accounts: turn
+   ownership on for that volume where that matters. Exclude the folder from
+   any backup of that disk, such as Time Machine.
+   The autostart reads the copy of `product.settings` the installer made, so
+   after setting this, merge the changed `product.settings` to `<ORIGIN_URL>`'s
+   main (the installer stops if the working-tree file differs from main), then
+   unload the autostart agent and run the installer again; until then an auto-restore still uses the default temp folder, with
+   no warning. A killed restore can leave plaintext there until the next
+   autostart run removes it (the run after that, if the disk mounts late). A
+   restore the autostart does not run ignores the setting: set `TMPDIR` to a
+   private folder for a manual one, and for the drill in step 8, which runs
+   `restore.sh` on the host.
 8. Run the restore drill and record the result in the product's
    `docs/restore-rehearsal.md`:
 

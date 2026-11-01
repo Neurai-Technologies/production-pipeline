@@ -47,6 +47,7 @@ DEPLOYER_SERVICE="${DEPLOYER_SERVICE:-deployer}"
 : "${DB_SERVICE:?DB_SERVICE must be set (product.settings)}"
 OPS_PROFILE="${OPS_PROFILE:-ops}"
 ERASURE_CHECK_SQL="${ERASURE_CHECK_SQL:-}"
+RESTORE_WORK_DIR="${RESTORE_WORK_DIR:-}"
 
 # launchd gives us /usr/bin:/bin:/usr/sbin:/sbin. colima shells out to limactl,
 # which lives in /opt/homebrew/bin, so without this colima dies with
@@ -115,6 +116,58 @@ fail() {
     exit 1
 }
 
+# Prints what is wrong with RESTORE_WORK_DIR; nothing means it is private. A
+# path ending in "/" or "/." is reported first: the -L test would resolve a
+# symlink written that way and pass it.
+restore_work_dir_problem() {
+    case "$RESTORE_WORK_DIR" in
+        */ | */. | */..) echo "RESTORE_WORK_DIR '${RESTORE_WORK_DIR}' has a trailing slash or dot - name the folder itself" ;;
+        /*)
+            if [ -L "$RESTORE_WORK_DIR" ]; then
+                echo "RESTORE_WORK_DIR ${RESTORE_WORK_DIR} is a symlink"
+            elif [ ! -d "$RESTORE_WORK_DIR" ]; then
+                echo "RESTORE_WORK_DIR ${RESTORE_WORK_DIR} is missing or not a directory"
+            elif [ ! -O "$RESTORE_WORK_DIR" ]; then
+                echo "RESTORE_WORK_DIR ${RESTORE_WORK_DIR} is not owned by the current user"
+            elif [ -z "$(find "$RESTORE_WORK_DIR" -maxdepth 0 -perm 700)" ]; then
+                echo "RESTORE_WORK_DIR ${RESTORE_WORK_DIR} is not exactly mode 700"
+            # An ACL can open a mode 700 folder to everyone. macOS `ls -lde` prints
+            # one line per ACL entry after the folder's own line; plain `ls -ld`
+            # cannot tell, as its @ for an xattr hides the +. A failed ls prints
+            # nothing, which also counts as not private.
+            elif [ "$(ls -lde "$RESTORE_WORK_DIR" | wc -l)" -ne 1 ]; then
+                echo "RESTORE_WORK_DIR ${RESTORE_WORK_DIR} has an ACL or could not be checked for one"
+            fi
+            ;;
+        *) echo "RESTORE_WORK_DIR '${RESTORE_WORK_DIR}' is not an absolute path" ;;
+    esac
+}
+
+# Removes what a restore left in RESTORE_WORK_DIR. The folder is this product's
+# auto-restore's alone. The lock does not prove no restore is running: restore.sh
+# runs with 9>&-, so an orphan does not hold it. An orphan whose files are swept
+# before psql starts refuses or errors; once psql is reading, it finishes; never
+# a partial restore. An absolute path with nothing there stays silent: an absent
+# disk at a normal login must not alert or stop the VM. Any other bad folder
+# alerts and nothing is removed from it; step 6 refuses it if a restore needs it.
+# A file that will not go alerts too. Either way the run goes on, because neither
+# must stop the VM on every login.
+sweep_restore_work_dir() {
+    local problem
+    [ -n "$RESTORE_WORK_DIR" ] || return 0
+    case "$RESTORE_WORK_DIR" in
+        */ | */. | */..) ;;
+        /*) [ -e "$RESTORE_WORK_DIR" ] || [ -L "$RESTORE_WORK_DIR" ] || return 0 ;;
+    esac
+    problem=$(restore_work_dir_problem)
+    if [ -n "$problem" ]; then
+        alert "${problem} - nothing removed from it, and a restore would refuse"
+        return 0
+    fi
+    rm -rf "$RESTORE_WORK_DIR"/"$PRODUCT"-restore.* "$RESTORE_WORK_DIR"/backup-crypto.* \
+        || alert "could not remove leftovers of an earlier restore from RESTORE_WORK_DIR ${RESTORE_WORK_DIR} - they may hold plaintext; remove them by hand"
+}
+
 # 0. One starter at a time. The lock also stays held for the whole run, so a
 #    second login event (or an impatient re-kick) leaves. flock's absence must
 #    be its own loud failure: a missing binary returns 127 into the same ||,
@@ -132,6 +185,10 @@ command -v timeout >/dev/null || fail "timeout missing (brew install coreutils) 
 # the VM would never start (2026-10-04 here, 2026-10-20 on a sibling VM).
 exec 9>"$LOCK"
 flock -n 9 || { echo "another autostart run holds the lock; leaving"; exit 0; }
+
+# SIGKILL or a power loss skips a restore's own cleanup, and after a power loss the volume
+# survives, so step 6 may never run again: every run sweeps, not only a restore.
+sweep_restore_work_dir
 
 # 1. The volume, proven by the VM's own config file.
 for _ in $(seq 1 60); do
@@ -248,6 +305,15 @@ newest=$(ls -t "$BK/${BACKUP_PREFIX}"-*.sql.gz.enc 2>/dev/null | head -1)
 age_h=$(( ( $(date +%s) - $(stat -f %m "$newest") ) / 3600 ))
 [ "$age_h" -le "$MAX_DUMP_AGE_HOURS" ] \
     || fail "newest dump is ${age_h}h old (cap ${MAX_DUMP_AGE_HOURS}h) - too stale to restore unattended; restore manually"
+# A product that names a work folder wants the dump's plaintext there and nowhere
+# else, so a folder that is not private refuses the restore, before anything is
+# created, and never falls back to the default temp folder. Only this script
+# reads the setting, not restore.sh: a drill may run restore.sh in a container,
+# where a host path does not exist.
+if [ -n "$RESTORE_WORK_DIR" ]; then
+    problem=$(restore_work_dir_problem)
+    [ -z "$problem" ] || fail "${problem} - refusing to restore"
+fi
 alert "database volume missing - auto-restoring $(basename "$newest") (${age_h}h old)"
 
 cd "${REPO}/${COMPOSE_DIR}"
@@ -266,6 +332,9 @@ cd "${REPO}/${COMPOSE_DIR}"
 RESTORE_OK=0
 restore_cleanup() {
     [ "$RESTORE_OK" = "1" ] && return 0
+    # First, so plaintext goes even if a docker call below runs to its limit.
+    # This is an EXIT trap: the || true keeps the sweep out of the exit status.
+    sweep_restore_work_dir || true
     timeout -k 10 120 docker compose -p "$COMPOSE_PROJECT" rm -sf "$DB_SERVICE" 9>&- >/dev/null 2>&1 || true
     timeout -k 10 10 docker volume rm "$PGDATA_VOLUME" 9>&- >/dev/null 2>&1 || true
     # Report what actually happened: a stop that runs past its limit leaves the
@@ -304,7 +373,12 @@ timeout -k 10 10 docker compose -p "$COMPOSE_PROJECT" exec -T "$DB_SERVICE" pg_i
 # before the exec. backup.sh and restore.sh both say the passphrase travels by
 # env and never argv; this is the line that used to break that rule, and it
 # guards every encrypted dump including the off-site copies.
+#
+# TMPDIR is for restore.sh alone, the same way: the rest of this script, and its
+# colima and docker calls, keep the environment they had. Without the setting
+# the value is the folder restore.sh would pick by itself.
 RESTORE_UNVERIFIED= RESTORE_PROJECT="$COMPOSE_PROJECT" PRODUCT_SETTINGS="$(dirname "$0")/product.settings" \
+    TMPDIR="${RESTORE_WORK_DIR:-${TMPDIR:-/tmp}}" \
     BACKUP_PASSPHRASE="$(grep "^BACKUP_PASSPHRASE=" .env | cut -d= -f2-)" \
     timeout -k 10 1800 bash "${REPO}/${LIBRARY_DIR}/deploy/restore.sh" "$newest" 9>&-
 
