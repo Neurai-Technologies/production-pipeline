@@ -23,6 +23,12 @@
 # private temp file and checked for pg_dump's header and trailer. Only then
 # does psql run, with ON_ERROR_STOP + --single-transaction so a mid-stream SQL
 # error still applies nothing.
+#
+# Two temp paths hold plaintext during a restore, both under ${TMPDIR:-/tmp}:
+# <PRODUCT>-restore.* (the whole dump) and backup-crypto.*/plaintext (gzipped,
+# from backup_decrypt). vm-autostart sets TMPDIR from RESTORE_WORK_DIR; this
+# script does not read that setting. A manual restore on the host should set
+# TMPDIR itself to keep the plaintext off the default temp folder.
 set -eu
 set -o pipefail
 # Settings: the product's product.settings, named by PRODUCT_SETTINGS (vm-autostart

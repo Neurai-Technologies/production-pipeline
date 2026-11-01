@@ -115,6 +115,10 @@ APP_SUPPORT_DIR="$HOME/Library/Application Support/myproduct"
 RESTORE_VERIFY_SQL="select count(*) from users"
 # Optional query that checks erasure requests were honoured after a restore (empty: skip).
 ERASURE_CHECK_SQL=
+# Optional absolute private folder (mode 700, owned by the user), used only by this product's auto-restore.
+# The dump's plaintext is written there during a restore. Missing or not private: the restore refuses.
+# Empty: the default temp folder.
+RESTORE_WORK_DIR=
 # Block device of the VM's data disk. Default: /dev/vdb1.
 DATA_DISK_DEVICE=/dev/vdb1
 # Age in hours past which the newest dump counts as stale. Default: 48.
