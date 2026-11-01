@@ -69,7 +69,7 @@ packages' metadata on 2026-10-23.
 | iniconfig, packaging, pluggy, Pygments | 2.3.1, 26.3, 1.7.0, 2.21.0 | pytest's dependencies in CI | MIT; Apache-2.0 OR BSD-2-Clause; MIT; BSD-2-Clause (metadata) |
 | wrangler | 4.131.1 (`wrangler-version` input, run through npx) | reusable-worker-deploy | MIT OR Apache-2.0 (upstream) |
 | actions/checkout | v7.0.1, by commit SHA | workflows | MIT (upstream) |
-| actions/setup-python | v7.0.0, by commit SHA | workflows | MIT (upstream) |
+| actions/setup-python | v7.1.0, by commit SHA | workflows | MIT (upstream) |
 | actions/setup-node | v4.4.0, by commit SHA | reusable workflows | MIT (upstream) |
 | actions/cache | v4.3.0, by commit SHA | reusable-ci (cargo cache) | MIT (upstream) |
 | pnpm/action-setup | v6.1.0, by commit SHA | reusable workflows | MIT (upstream) |
