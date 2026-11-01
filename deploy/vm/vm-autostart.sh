@@ -131,6 +131,12 @@ restore_work_dir_problem() {
                 echo "RESTORE_WORK_DIR ${RESTORE_WORK_DIR} is not owned by the current user"
             elif [ -z "$(find "$RESTORE_WORK_DIR" -maxdepth 0 -perm 700)" ]; then
                 echo "RESTORE_WORK_DIR ${RESTORE_WORK_DIR} is not exactly mode 700"
+            # An ACL can open a mode 700 folder to everyone. macOS `ls -lde` prints
+            # one line per ACL entry after the folder's own line; plain `ls -ld`
+            # cannot tell, as its @ for an xattr hides the +. A failed ls prints
+            # nothing, which also counts as not private.
+            elif [ "$(ls -lde "$RESTORE_WORK_DIR" | wc -l)" -ne 1 ]; then
+                echo "RESTORE_WORK_DIR ${RESTORE_WORK_DIR} has an ACL or could not be checked for one"
             fi
             ;;
         *) echo "RESTORE_WORK_DIR '${RESTORE_WORK_DIR}' is not an absolute path" ;;
@@ -141,15 +147,25 @@ restore_work_dir_problem() {
 # auto-restore's alone. The lock does not prove no restore is running: restore.sh
 # runs with 9>&-, so an orphan does not hold it. An orphan whose files are swept
 # before psql starts refuses or errors; once psql is reading, it finishes; never
-# a partial restore. A folder that is missing or not private is left alone in
-# silence: an absent disk at a normal login must not alert or stop the VM, and
-# step 6 refuses it if a restore needs it. A file that will not go alerts and the
-# run goes on, because it must not stop the VM on every login.
+# a partial restore. An absolute path with nothing there stays silent: an absent
+# disk at a normal login must not alert or stop the VM. Any other bad folder
+# alerts and nothing is removed from it; step 6 refuses it if a restore needs it.
+# A file that will not go alerts too. Either way the run goes on, because neither
+# must stop the VM on every login.
 sweep_restore_work_dir() {
-    if [ -n "$RESTORE_WORK_DIR" ] && [ -z "$(restore_work_dir_problem)" ]; then
-        rm -rf "$RESTORE_WORK_DIR"/"$PRODUCT"-restore.* "$RESTORE_WORK_DIR"/backup-crypto.* \
-            || alert "could not remove leftovers of an earlier restore from RESTORE_WORK_DIR ${RESTORE_WORK_DIR} - they may hold plaintext; remove them by hand"
+    local problem
+    [ -n "$RESTORE_WORK_DIR" ] || return 0
+    case "$RESTORE_WORK_DIR" in
+        */ | */. | */..) ;;
+        /*) [ -e "$RESTORE_WORK_DIR" ] || [ -L "$RESTORE_WORK_DIR" ] || return 0 ;;
+    esac
+    problem=$(restore_work_dir_problem)
+    if [ -n "$problem" ]; then
+        alert "${problem} - nothing removed from it, and a restore would refuse"
+        return 0
     fi
+    rm -rf "$RESTORE_WORK_DIR"/"$PRODUCT"-restore.* "$RESTORE_WORK_DIR"/backup-crypto.* \
+        || alert "could not remove leftovers of an earlier restore from RESTORE_WORK_DIR ${RESTORE_WORK_DIR} - they may hold plaintext; remove them by hand"
 }
 
 # 0. One starter at a time. The lock also stays held for the whole run, so a

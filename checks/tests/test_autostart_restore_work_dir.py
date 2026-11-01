@@ -17,6 +17,7 @@ import os
 import shlex
 import shutil
 import subprocess
+import sys
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -28,6 +29,23 @@ from tests.shell import assignment, fake, lift, path_with
 from tests.test_deploy_backup_restore import FAKE_DUMP, dumps, restore, run_backup
 
 SETTING = "RESTORE_WORK_DIR"
+
+# The script tells an ACL by the entry lines of macOS `ls -lde`, a flag GNU ls
+# does not have, and CI runs on Linux. So every run gets a fake that answers
+# that one call, as macOS does (a second line is an ACL entry), and hands the
+# rest to the real ls. REAL_LS is for the macOS-only tests with a real ACL.
+LS_PATH = shlex.quote(str(shutil.which("ls")))
+NO_ACL_LS = (
+    '[ "$1" = -lde ] && { echo "drwx------@ 2 fake fake 64 Nov 1 00:00 folder"; exit 0; }\n'
+    f'exec {LS_PATH} "$@"\n'
+)
+ACL_LS = (
+    '[ "$1" = -lde ] && { echo "drwx------@ 2 fake fake 64 Nov 1 00:00 folder"; '
+    'echo " 0: group:everyone allow list,search"; exit 0; }\n'
+    f'exec {LS_PATH} "$@"\n'
+)
+REAL_LS = f'exec {LS_PATH} "$@"\n'
+macos_only = pytest.mark.skipif(sys.platform != "darwin", reason="chmod +a and ls -e are macOS-only")
 
 
 @pytest.fixture
@@ -101,6 +119,7 @@ def build_world(
     fake(bin_dir, "osascript", f'printf "%s\\n" "$*" >>{shlex.quote(str(tmp_path / "alerts.log"))}\n')
     # The script reads a dump's age with BSD stat; CI runs on Linux. Age zero.
     fake(bin_dir, "stat", "date +%s\n")
+    fake(bin_dir, "ls", NO_ACL_LS)
     for name, body in (extra_fakes or {}).items():
         fake(bin_dir, name, body)
 
@@ -160,8 +179,9 @@ def run_step_6(
     script: Path,
     env: ProductSettings,
     inherited_tmpdir: str | None,
+    extra_fakes: dict[str, str] | None = None,
 ) -> Run:
-    build_world(tmp_path, env, volume_present=False, extra_fakes=None)
+    build_world(tmp_path, env, volume_present=False, extra_fakes=extra_fakes)
     names = (SETTING, "REPO", "BK", "MAX_DUMP_AGE_HOURS", "FAILED_MARK", "PGDATA_VOLUME")
     code = (
         prelude(script, env, names)
@@ -404,6 +424,16 @@ def relative(tmp_path: Path) -> str:
     return "relative/work"
 
 
+def dangling_symlink(tmp_path: Path) -> str:
+    link = tmp_path / "dangling"
+    link.symlink_to(tmp_path / "gone")
+    return str(link)
+
+
+def missing_with_a_trailing_slash(tmp_path: Path) -> str:
+    return missing(tmp_path) + "/"
+
+
 @pytest.mark.parametrize(
     ("value", "reason"),
     [
@@ -412,6 +442,7 @@ def relative(tmp_path: Path) -> str:
         (group_readable, "mode 700"),
         (a_file, "not a directory"),
         (symlink_to_private, "symlink"),
+        (dangling_symlink, "symlink"),
         (symlink_with_a_trailing_slash, "trailing"),
         (symlink_with_a_trailing_dot, "trailing"),
         (relative, "absolute"),
@@ -435,12 +466,21 @@ def test_a_folder_that_is_not_private_refuses_before_anything_is_created(
     assert "auto-restoring" not in run.alerts, run.alerts
 
 
-@pytest.mark.parametrize("value", [symlink_to_private, world_readable], ids=lambda v: v.__name__)
-def test_a_login_removes_nothing_from_a_folder_that_is_not_private(
+@pytest.mark.parametrize(
+    ("value", "reason"),
+    [
+        (symlink_to_private, "symlink"),
+        (world_readable, "mode 700"),
+        (group_readable, "mode 700"),
+    ],
+    ids=lambda v: v.__name__ if callable(v) else "",
+)
+def test_a_login_alerts_on_a_folder_that_is_not_private_and_removes_nothing(
     tmp_path: Path,
     script: Path,
     product_settings: Callable[..., ProductSettings],
     value: Callable[[Path], str],
+    reason: str,
 ) -> None:
     folder = value(tmp_path)
     env = product_settings(**{SETTING: folder})
@@ -448,7 +488,134 @@ def test_a_login_removes_nothing_from_a_folder_that_is_not_private(
     run = run_login(tmp_path, script, env, volume_present=True)
     assert_normal_path(run)
     assert all(path.exists() for path in leftovers), "the sweep reached a folder that is not private"
-    assert run.alerts == "", run.alerts
+    assert SETTING in run.alerts and reason in run.alerts, run.alerts
+
+
+@pytest.mark.parametrize(
+    ("value", "reason"),
+    [
+        (dangling_symlink, "symlink"),
+        (symlink_with_a_trailing_slash, "trailing"),
+        (missing_with_a_trailing_slash, "trailing"),
+        (a_file, "not a directory"),
+        (relative, "absolute"),
+    ],
+    ids=lambda v: v.__name__ if callable(v) else "",
+)
+def test_a_login_alerts_on_a_bad_path_and_goes_on(
+    tmp_path: Path,
+    script: Path,
+    product_settings: Callable[..., ProductSettings],
+    value: Callable[[Path], str],
+    reason: str,
+) -> None:
+    """Only an absolute path with nothing at all there can be an absent disk."""
+    run = run_login(tmp_path, script, product_settings(**{SETTING: value(tmp_path)}), volume_present=True)
+    assert_normal_path(run)
+    assert SETTING in run.alerts and reason in run.alerts, run.alerts
+
+
+def test_an_acl_refuses_at_step_6(
+    tmp_path: Path,
+    script: Path,
+    product_settings: Callable[..., ProductSettings],
+    private_dir: Path,
+) -> None:
+    env = product_settings(**{SETTING: str(private_dir)})
+    run = run_step_6(tmp_path, script, env, None, extra_fakes={"ls": ACL_LS})
+    assert run.result.returncode == 1, run.result.stdout + run.result.stderr
+    assert SETTING in run.alerts and "ACL" in run.alerts, run.alerts
+    assert "refusing to restore" in run.alerts, run.alerts
+    assert run.restore_tmpdir is None, "restore ran against a folder with an ACL"
+    assert run.docker == "", f"docker ran:\n{run.docker}"
+
+
+def test_an_acl_alerts_at_login_and_removes_nothing(
+    tmp_path: Path,
+    script: Path,
+    product_settings: Callable[..., ProductSettings],
+    private_dir: Path,
+) -> None:
+    env = product_settings(**{SETTING: str(private_dir)})
+    leftovers = plant_leftovers(private_dir, env)
+    run = run_login(tmp_path, script, env, volume_present=True, extra_fakes={"ls": ACL_LS})
+    assert_normal_path(run)
+    assert SETTING in run.alerts and "ACL" in run.alerts, run.alerts
+    assert all(path.exists() for path in leftovers), "the sweep reached a folder with an ACL"
+
+
+def test_a_folder_gone_bad_during_a_failed_restore_keeps_the_cleanup_whole(
+    tmp_path: Path,
+    script: Path,
+    product_settings: Callable[..., ProductSettings],
+    private_dir: Path,
+) -> None:
+    """The alert from the sweep must not change the cleanup's exit status or volume handling."""
+    env = product_settings(**{SETTING: str(private_dir)})
+    leftover = f"{env.values['PRODUCT']}-restore.abc123"
+    body = 'chmod 755 "$TMPDIR"\n' + failing_restore(leftover)
+    run = run_login(tmp_path, script, env, volume_present=False, restore_body=body)
+    assert run.result.returncode == 3, run.result.stdout + run.result.stderr
+    assert (private_dir / leftover).exists(), "the sweep reached a folder that is not private"
+    assert "mode 700" in run.alerts, run.alerts
+    assert "auto-restore FAILED - removed its volume" in run.alerts, run.alerts
+
+
+def real_acl(folder: Path) -> None:
+    """The entry a review measured: without the check, files inside inherit read for everyone."""
+    entry = "everyone allow list,search,read,file_inherit,directory_inherit"
+    subprocess.run(["chmod", "+a", entry, str(folder)], check=True)
+
+
+def real_xattr(folder: Path) -> None:
+    subprocess.run(["xattr", "-w", "user.test", "value", str(folder)], check=True)
+
+
+@macos_only
+@pytest.mark.parametrize(
+    ("acl", "xattr", "refused"),
+    [(False, False, False), (True, False, True), (False, True, False), (True, True, True)],
+    ids=["plain", "acl", "xattr", "both"],
+)
+def test_the_real_ls_tells_an_acl_from_an_xattr(
+    tmp_path: Path,
+    script: Path,
+    product_settings: Callable[..., ProductSettings],
+    private_dir: Path,
+    acl: bool,
+    xattr: bool,
+    refused: bool,
+) -> None:
+    """Measured on macOS: `ls -ld` shows @ for an xattr and hides a + behind it, so it cannot tell."""
+    if acl:
+        real_acl(private_dir)
+    if xattr:
+        real_xattr(private_dir)
+    env = product_settings(**{SETTING: str(private_dir)})
+    run = run_step_6(tmp_path, script, env, None, extra_fakes={"ls": REAL_LS})
+    if refused:
+        assert run.result.returncode == 1, run.result.stdout + run.result.stderr
+        assert "ACL" in run.alerts, run.alerts
+        assert run.restore_tmpdir is None, "restore ran against a folder with an ACL"
+    else:
+        assert run.result.returncode == 0, run.result.stdout + run.result.stderr
+        assert run.restore_tmpdir == str(private_dir)
+
+
+@macos_only
+def test_a_real_acl_alerts_at_login_and_removes_nothing(
+    tmp_path: Path,
+    script: Path,
+    product_settings: Callable[..., ProductSettings],
+    private_dir: Path,
+) -> None:
+    env = product_settings(**{SETTING: str(private_dir)})
+    leftovers = plant_leftovers(private_dir, env)
+    real_acl(private_dir)
+    run = run_login(tmp_path, script, env, volume_present=True, extra_fakes={"ls": REAL_LS})
+    assert_normal_path(run)
+    assert "ACL" in run.alerts, run.alerts
+    assert all(path.exists() for path in leftovers), "the sweep reached a folder with an ACL"
 
 
 def test_an_empty_setting_leaves_the_inherited_temp_folder(
