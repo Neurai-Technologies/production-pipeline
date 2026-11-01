@@ -76,6 +76,6 @@ packages' metadata on 2026-10-23.
 | Gitleaks | 8.30.1, by SHA-256 | CI, hooks, check suite | MIT (upstream) |
 | Rust toolchain | the caller's exact X.Y.Z, via the runner image's rustup over HTTPS (not checksum-pinned) | reusable-ci (`rust-toolchain`) | MIT or Apache-2.0 (upstream) |
 | postgres image | 16.15-alpine | backup and restore-drill images | PostgreSQL Licence (upstream) |
-| docker image | 27-cli, by digest | deployer image | Apache-2.0 (upstream) |
+| docker image | 29.9.2-cli, by digest | deployer image | Apache-2.0 (upstream) |
 
 This document is not a licence grant.

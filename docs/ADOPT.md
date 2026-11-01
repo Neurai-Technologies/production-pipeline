@@ -350,7 +350,14 @@ SHA differs, stop: the tag does not exist or is not the release you meant.
    compose file too. Upgrading to the release that adds the `backup-lock`
    volume: add `backup-lock:/lock` to the backup service's volumes and
    declare `backup-lock:` under the top-level `volumes:`, or the scheduled
-   backups and the pre-deploy `once` refuse to start.
+   backups and the pre-deploy `once` refuse to start. Upgrading to the
+   release whose deployer image is `docker:29.9.2-cli`: Docker moves from
+   27.5.1 to 29.9.2, compose from v2.33.0 to v5.6.1 and the image's Python
+   from 3.12 to 3.14. The library tested this only against a Docker 29.2.1
+   daemon, with a small stack. Check your daemon's version, then run a full
+   deploy on a test setup with your own compose file, covering the image
+   prune, the log archive and any `POST_DEPLOY_HOOK`. Compose may recreate
+   containers on the first `up` after the upgrade.
 5. Run the product's checks and the library checks, then release the
    product through its normal path. Nothing changes in a product until it
    does this.
