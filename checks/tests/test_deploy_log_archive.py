@@ -233,6 +233,60 @@ def test_archives_older_than_the_window_are_pruned_and_younger_ones_kept(
     assert kept.exists() and kept.with_name(kept.name + ".hmac").exists()
 
 
+def expired_archive(tmp_path: Path) -> tuple[Path, Path]:
+    """An archive and its sidecar, both a day older than the default window."""
+    out = tmp_path / "log-archive"
+    out.mkdir()
+    archive = out / "logs-20250801-020000.tar.gz.enc"
+    sidecar = archive.with_name(archive.name + ".hmac")
+    for f in (archive, sidecar):
+        f.write_bytes(b"x")
+        os.utime(f, (time.time() - 421 * DAY, time.time() - 421 * DAY))
+    return archive, sidecar
+
+
+def test_prune_off_keeps_expired_archives_and_the_night_still_archives(
+    tmp_path: Path, env: ProductSettings
+) -> None:
+    archive, sidecar = expired_archive(tmp_path)
+    out, result = run_archive(tmp_path, env, LOG_ARCHIVE_PRUNE="off")
+    assert archive.exists() and sidecar.exists()
+    assert "log archive written" in result.stdout, result.stderr
+    assert len(list(out.glob("logs-*.tar.gz.enc"))) == 2
+
+
+@pytest.mark.parametrize("value", ["on", ""])
+def test_prune_on_or_empty_removes_expired_archives(tmp_path: Path, env: ProductSettings, value: str) -> None:
+    archive, sidecar = expired_archive(tmp_path)
+    run_archive(tmp_path, env, LOG_ARCHIVE_PRUNE=value)
+    assert not archive.exists() and not sidecar.exists()
+
+
+def test_prune_unset_removes_expired_archives(tmp_path: Path, env: ProductSettings) -> None:
+    archive, sidecar = expired_archive(tmp_path)
+    del env.values["LOG_ARCHIVE_PRUNE"]
+    run_archive(tmp_path, env)
+    assert not archive.exists() and not sidecar.exists()
+
+
+@pytest.mark.parametrize("args", [(), ("once",)])
+@pytest.mark.parametrize("value", ["Off", "no"])
+def test_a_bad_prune_value_refuses_at_startup_and_writes_nothing(
+    tmp_path: Path, env: ProductSettings, value: str, args: tuple[str, ...]
+) -> None:
+    out, result = run_archive(tmp_path, env, args=args, LOG_ARCHIVE_PRUNE=value)
+    assert result.returncode == 1, result.stderr
+    assert "LOG_ARCHIVE_PRUNE" in result.stderr
+    assert not list(out.iterdir()), sorted(p.name for p in out.iterdir())
+
+
+def test_the_prune_command_stays_on_one_line_for_the_consumer_that_pins_it() -> None:
+    # A single-line needle: found at all means found on one line.
+    assert """find "$ROOT" -name 'logs-*.tar.gz.enc*' -mtime +"$KEEP_DAYS" -delete""" in ARCHIVE.read_text(
+        encoding="utf-8"
+    )
+
+
 def test_the_off_site_copy_goes_under_the_logs_prefix_with_credentials_by_stdin(
     tmp_path: Path, env: ProductSettings
 ) -> None:

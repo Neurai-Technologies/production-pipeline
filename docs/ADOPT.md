@@ -159,7 +159,14 @@ SHA differs, stop: the tag does not exist or is not the release you meant.
    `@sha256:` digest for a stronger pin) whose major equals the product's
    database server major, because pg_dump refuses a newer server. The
    library's default is the 16 line; a product on 17 sets a 17 tag in both
-   places.
+   places. `logarchive` prunes its local archives each night at
+   `LOG_ARCHIVE_KEEP_DAYS`. A product whose mover job takes the archives to a
+   store that applies retention sets `LOG_ARCHIVE_PRUNE=off`, so an absent
+   store cannot cost archives never moved. That mover must watch free space:
+   archives sit under `BACKUP_DIR/logs`, beside the dumps, so a full disk
+   stops the database backups too. It also owns the product's retention
+   promise, as archives can outlive it while the store is away. Empty or `on`
+   keeps the prune; any other value refuses at startup.
 5. Add the hooks if the product needs them, as executable files at the
    paths `product.settings` names: `PRE_DEPLOY_HOOK` (run before anything is
    replaced, such as a database backup, the SHA as `$1`; its failure fails
@@ -363,7 +370,14 @@ SHA differs, stop: the tag does not exist or is not the release you meant.
    compose file too. Upgrading to the release that adds the `backup-lock`
    volume: add `backup-lock:/lock` to the backup service's volumes and
    declare `backup-lock:` under the top-level `volumes:`, or the scheduled
-   backups and the pre-deploy `once` refuse to start.
+   backups and the pre-deploy `once` refuse to start. Upgrading to the
+   release whose deployer image is `docker:29.9.2-cli`: Docker moves from
+   27.5.1 to 29.9.2, compose from v2.33.0 to v5.6.1 and the image's Python
+   from 3.12 to 3.14. The library tested this only against a Docker 29.2.1
+   daemon, with a small stack. Check your daemon's version, then run a full
+   deploy on a test setup with your own compose file, covering the image
+   prune, the log archive and any `POST_DEPLOY_HOOK`. Compose may recreate
+   containers on the first `up` after the upgrade.
 5. Run the product's checks and the library checks, then release the
    product through its normal path. Nothing changes in a product until it
    does this.

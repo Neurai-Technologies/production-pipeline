@@ -1,5 +1,6 @@
 #!/bin/sh
-# Nightly encrypted archive of the containers' logs, kept 420 days. Runs as a
+# Nightly encrypted archive of the containers' logs, kept for
+# LOG_ARCHIVE_KEEP_DAYS (default 420). Runs as a
 # long-lived compose service (see compose.example.yml) beside backup.sh, from
 # the same image, under the same passphrase and R2 bucket.
 #
@@ -10,8 +11,9 @@
 # stack's containers wrote to in the last day, tars them (read in place, through
 # a staging directory of symlinks) under the container's name, encrypts the
 # archive exactly as backup.sh encrypts a dump, keeps it
-# locally for LOG_ARCHIVE_KEEP_DAYS and PUTs a copy under logs/ in the R2
-# bucket. A line that stays in the active file across several nights appears
+# locally for LOG_ARCHIVE_KEEP_DAYS (with LOG_ARCHIVE_PRUNE=off, until something
+# else takes it) and PUTs a copy under logs/ in the R2 bucket. A line that
+# stays in the active file across several nights appears
 # in several archives; that overlap is cheaper than tracking offsets. With the
 # argument `once` it archives one time and exits (see the bottom).
 #
@@ -40,8 +42,15 @@ command -v openssl >/dev/null 2>&1 || {
 
 # 420 days: at least the year DPDP asks for, and with the nightly prune and
 # the R2 sweep's day of lag still inside "up to 14 months" (the shortest 14
-# months is 424 days).
+# months is 424 days). With LOG_ARCHIVE_PRUNE=off that promise is the mover's:
+# archives stay here, past this window, until it takes them.
 KEEP_DAYS="${LOG_ARCHIVE_KEEP_DAYS:-420}"
+# Empty or on: the nightly prune runs. off: it is skipped (see the loop below).
+PRUNE="${LOG_ARCHIVE_PRUNE:-on}"
+case "$PRUNE" in
+    on|off) ;;
+    *) echo "LOG_ARCHIVE_PRUNE must be empty, on or off" >&2; exit 1 ;;
+esac
 # /log-archive in the container; overridable so the script can run under a test.
 ROOT="${LOG_ARCHIVE_ROOT:-/log-archive}"
 # Where a night's file list is staged: a directory of symlinks on a tmpfs
@@ -186,7 +195,9 @@ rm -rf "${STAGE}"/stage-* "${ROOT}"/*.writing "${ROOT}"/*.writing.hmac "${ROOT}"
 while true; do
     # The retention window, applied whatever tonight's archive does: an
     # archive that fails must not keep old ones alive past their day.
-    find "$ROOT" -name 'logs-*.tar.gz.enc*' -mtime +"$KEEP_DAYS" -delete
+    # LOG_ARCHIVE_PRUNE=off leaves retention to whatever takes the archives, and
+    # the disk then becomes the limit.
+    [ "$PRUNE" = off ] || find "$ROOT" -name 'logs-*.tar.gz.enc*' -mtime +"$KEEP_DAYS" -delete
     # A failed night is reported inside; the loop goes on to the next.
     archive || :
     # Nightly from container start (plus the archive-on-start above).

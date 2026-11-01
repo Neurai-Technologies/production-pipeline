@@ -545,7 +545,7 @@ deploy() {
     # --remove-orphans: a service deleted from the compose file would
     # otherwise keep running. A
     # service of an unselected profile, this deployer included, is still
-    # defined and never an orphan (compose v2.33.0 counts disabled services
+    # defined and never an orphan (compose v5.6.1 counts disabled services
     # as defined: isOrphaned, pkg/compose/containers.go).
     FAILED_STEP="compose up"
     docker compose -p "$COMPOSE_PROJECT" --project-directory "$COMPOSE_DIR_ABS" up -d --build --remove-orphans || return 1
