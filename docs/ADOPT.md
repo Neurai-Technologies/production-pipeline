@@ -303,18 +303,22 @@ SHA differs, stop: the tag does not exist or is not the release you meant.
      from `<ORIGIN_URL>`'s main whether or not the mirror is set, so adopt
      the library release that contains them, merged to main, before
      running it.
-   - An auto-restore writes the dump's plaintext to the default temp
-     folder unless `RESTORE_WORK_DIR` names another. Put that folder on the
-     disk meant to hold plaintext, mode 700, owned by the user, used by this
-     product's auto-restore only; anything else refuses the restore. Exclude
-     it from any backup of that disk, such as Time Machine. A
-     killed restore can leave plaintext there until the next autostart run
-     removes it (the run after that, if the disk mounts late). A restore the
-     autostart does not run ignores the setting: set `TMPDIR` for a manual
-     one.
    - To add the mirror to an installed autostart, unload the autostart
      agent and run the installer again (loading runs the autostart once;
      with the volume present it only reports).
+
+   With or without the mirror, an auto-restore writes the dump's plaintext
+   to the default temp folder unless `RESTORE_WORK_DIR` names another. Put
+   that folder on the disk meant to hold plaintext, mode 700, owned by the
+   user, used by this product's auto-restore only; anything else refuses the
+   restore. Exclude it from any backup of that disk, such as Time Machine.
+   The autostart reads the copy of `product.settings` the installer made, so
+   after setting this, unload the autostart agent and run the installer
+   again; until then an auto-restore still uses the default temp folder, with
+   no warning. A killed restore can leave plaintext there until the next
+   autostart run removes it (the run after that, if the disk mounts late). A
+   restore the autostart does not run ignores the setting: set `TMPDIR` for a
+   manual one.
 8. Run the restore drill and record the result in the product's
    `docs/restore-rehearsal.md`:
 
