@@ -8,7 +8,8 @@ name: Repository checks
 # Reviewed work is pushed to ci, and a green run there promotes main by
 # fast-forward (promote.yml). That push uses GITHUB_TOKEN, which starts no
 # workflows, and its sha has already run here, so main has no push trigger.
-# pull_request stays for dependency-bot PRs.
+# If GitHub refuses that push, the owner lands the same sha by hand
+# (docs/PROJECT.md). pull_request stays for dependency-bot PRs.
 on:
   push:
     branches: [ci]
