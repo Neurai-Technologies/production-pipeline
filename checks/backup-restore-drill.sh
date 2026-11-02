@@ -113,7 +113,10 @@ run_major() {
     cp "$REPO/deploy/backup/backup.sh" "$REPO/deploy/backup/logarchive.sh" \
         "$REPO/deploy/backup/crypto.sh" "$WORK/build/scripts/"
     printf '{"Name":"/fakestack-api-1"}\n' > "$WORK/build/logs/fixture/config.v2.json"
-    printf 'disposable log archive fixture\n' > "$WORK/build/logs/fixture/fixture-json.log"
+    # The nonce keeps this COPY layer out of the build cache: a cached layer keeps
+    # the file times of the run that built it, and logarchive.sh skips a log not
+    # written to in the last day.
+    printf 'disposable log archive fixture %s\n' "$nonce" > "$WORK/build/logs/fixture/fixture-json.log"
     cp "$REPO/deploy/backup/Dockerfile" "$WORK/build/Dockerfile"
     printf '\nCOPY scripts/ /scripts/\nCOPY logs/ /fixture-logs/\n' >> "$WORK/build/Dockerfile"
     docker build --build-arg "POSTGRES_IMAGE=$postgres" \
@@ -285,7 +288,7 @@ SETTINGS
     BACKUP_PASSPHRASE="$PIPELINE_DRILL_PASSPHRASE" BACKUP_HMAC_SALT=fakesalt \
         bash -c '. "$1"; backup_decrypt "$2"' fixture "$REPO/deploy/backup/crypto.sh" \
         "$archive" | tar -xOzf - './fakestack-api-1/fixture-json.log' \
-        | grep -qx 'disposable log archive fixture'
+        | grep -qx "disposable log archive fixture $nonce"
     "${C[@]}" down --volumes
     docker image rm "$IMAGE"
     rm -rf "$WORK"
