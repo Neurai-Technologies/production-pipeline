@@ -164,16 +164,16 @@ third-party services we use, social engineering, denial of service.
   record list: `dig` shows only A records by default and cannot see behind
   a proxied record.
 - Server-side enforcement: `.github/rulesets/main.json` blocks deletion and
-  force-push on `main`, requires a pull request, linear history and the CI
-  check, with no bypass actors. Apply it with the command in
+  force-push on `main`, requires linear history and the CI check, with no
+  bypass actors. Apply it with the command in
   docs/PROJECT.md; the check is pinned to the GitHub Actions app so a
   hand-posted status cannot satisfy it. `.github/rulesets/tags.json`
   makes release tags `v*` immutable: no deletion, no update, no force.
   Rulesets are not inherited: both are applied once the repository is on
   GitHub. Changes to `.github/`, `.githooks/`, `scripts/`, `.gitleaks.toml`,
   `deploy/` and `checks/` (`.github/CODEOWNERS`) are reviewed by hand
-  before merge. That review is policy, not enforced by the ruleset (0
-  required approvals, `require_code_owner_review` false). Hooks remain a
+  before they are pushed to `ci`. That review is policy, not enforced by the
+  ruleset, which has no pull-request rule. Hooks remain a
   guardrail, not an authorisation boundary. GitHub's paid scanners (secret
   protection, CodeQL, dependency review) are not assumed on private
   repositories.

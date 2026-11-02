@@ -67,9 +67,11 @@ from this file, and `just ci` fails when the copies differ.
 - One fix at a time: implement, verify, commit, then start the next. Never
   bundle unrelated changes in one commit.
 - Push is part of delivery: commit verified work and push it before ending a
-  turn unless told not to. With a remote: branch, push, PR, merge on green,
-  never straight to `main`. Where a push deploys (docs/PROJECT.md), done
-  means the live result is healthy. Never force-push or rewrite shared history.
+  turn unless told not to. With a remote: reviewed work is pushed to `ci`, CI
+  runs, and a green run promotes `main` by fast-forward; never straight to
+  `main`. docs/PROJECT.md says who pushes. Where a push deploys
+  (docs/PROJECT.md), done means the live result is healthy. Never force-push
+  or rewrite shared history.
 - State an unpushed count only after `git rev-list --count origin/main..HEAD`.
 - Never bypass hooks (`--no-verify`, `-c core.hooksPath=`) and never write a
   review marker that a review did not produce. If a gate cannot run, that is
@@ -119,7 +121,7 @@ from this file, and `just ci` fails when the copies differ.
   action pins, explicit installs, per-user and per-tenant isolation tested at
   the server boundary. Hiding a control is not authorisation.
 - Changes to auth, sessions, tokens, payments, deletion, permissions, CI,
-  hooks or data handling get a security review before commit.
+  hooks or data handling get a security review before they are pushed.
 - No runtime fetches from third-party CDNs; bundle assets and ship a strict
   CSP. Strip EXIF from any photo published from the repository (keep the ICC
   profile).
@@ -206,9 +208,10 @@ from this file, and `just ci` fails when the copies differ.
 
 ## Claude Code specifics
 
-- Before a commit, run the `lint` and `security-engineer` sub-agents on the
-  staged change; before a PR, run `code-reviewer`. Any edit after they report
-  re-runs both. Never write a review marker a review did not produce.
+- Session git writes go only through `git-gate`. The `lint`, `code-reviewer`
+  and `security-engineer` sub-agents run once per batch over the range, before
+  it is pushed to `ci`. Any edit after they report re-runs all three. Never
+  write a review marker a review did not produce.
 - Research, web-search and web-fetch sub-agents run on Sonnet. Keep a
   workflow to at most nine sub-agents unless the operator agrees to more.
 - `claude --bare -p` skips this file and every hook; nothing enforced only
@@ -236,7 +239,8 @@ Layout:
 - `.github/workflows/reusable-ci.yml`, `reusable-promote.yml`,
   `reusable-worker-deploy.yml`: workflows a product calls by full commit
   SHA.
-  `.github/workflows/ci.yml` is this repository's own check.
+  `.github/workflows/ci.yml` is this repository's own check, and
+  `promote.yml` fast-forwards `main` from a green `ci`.
 - `deploy/deployer`: the VM deploy loop. `deploy/backup`: backup and
   log-archive images. `deploy/restore.sh` and `deploy/restore-drill`: restore
   and the recorded drill. `deploy/vm`: the LaunchAgent VM autostart script
@@ -257,9 +261,14 @@ Rules:
 - Consumers pin the full commit SHA of a release tag, with a `# vX.Y.Z`
   comment, never the tag alone. Nothing changes in a product until it
   bumps the pin.
-- `main` is pull-request only; there is no deploy-on-push.
+- Reviewed work is pushed to `ci`; CI runs; a green run promotes `main` by
+  fast-forward. The owner pushes `ci` and creates tags from a terminal,
+  because sessions cannot write to this organisation's repositories.
+  `git-gate` is the only route for session git writes. `lint`,
+  `code-reviewer` and `security-engineer` run once per batch over the range.
+  There is no deploy-on-push.
 - `deploy/` and `.github/workflows/` are security-sensitive paths: every
-  change there gets a security review before commit.
+  change there gets a security review before it is pushed.
 - The library is Bash, Python 3.11+ standard library and YAML; there is no
   stack profile under docs/profiles/ and no docs/LEGAL.md, because it ships
   no application and collects no data.
