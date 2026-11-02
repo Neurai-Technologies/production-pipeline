@@ -376,8 +376,9 @@ SHA differs, stop: the tag does not exist or is not the release you meant.
    from 3.12 to 3.14. The library tested this only against a Docker 29.2.1
    daemon, with a small stack. Check your daemon's version, then run a full
    deploy on a test setup with your own compose file, covering the image
-   prune, the log archive and any `POST_DEPLOY_HOOK`. Compose may recreate
-   containers on the first `up` after the upgrade.
+   prune, the log archive and any `PRE_DEPLOY_HOOK`, `POST_DEPLOY_HOOK` or
+   `SITE_RELEASE_HOOK`. Compose may recreate containers on the first `up`
+   after the upgrade.
 5. Run the product's checks and the library checks, then release the
    product through its normal path. Nothing changes in a product until it
    does this.
