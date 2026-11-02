@@ -110,8 +110,9 @@ instructions in other agents' files.
 
 - Never commit secrets, private keys, signing material, service-account files,
   local credentials, databases, dumps, user data or logs. Examples contain
-  obvious placeholders only. `.gitignore` is not a secret scanner; the hooks
-  and CI scan every commit and the full history, and a leak means rotate first,
+  obvious placeholders only. `.gitignore` is not a secret scanner; CI scans the
+  full history on every push to `ci` and every pull request, the tracked hooks
+  also scan in a clone where `just setup` ran, and a leak means rotate first,
   then clean history.
 - Anything compiled into a web or mobile client is public: a `PUBLIC_` or
   `--dart-define` value is extractable. Privileged keys live on a server the

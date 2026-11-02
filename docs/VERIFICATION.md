@@ -38,8 +38,9 @@ gitleaks git . --redact --no-banner --ignore-gitleaks-allow --config .gitleaks.t
 ```
 
 Locally the secret scan covers committed history only: `gitleaks dir .`
-would also read gitignored files such as a local `.env`. The pre-commit hook
-scans each staged change, and CI scans the files of its clean checkout.
+would also read gitignored files such as a local `.env`. Each staged change is
+scanned by the pre-commit hook in a clone where `just setup` ran, and by
+`git-gate` for a session; CI scans the files of its clean checkout.
 
 The text checker reads tracked and non-ignored new files. It checks UTF-8,
 LF, final newlines, trailing whitespace, simple relative Markdown links, that
@@ -58,6 +59,11 @@ API, so `just ci` has no local equivalent; check by hand with
 `gh api repos/<owner>/<name> --jq .has_pages`.
 
 ## Hooks
+
+The tracked hooks run on the owner's commits and pushes from a terminal, in a
+clone where `just setup` ran. Session git writes go only through `git-gate`,
+which never runs them; CI runs the same checks on every push to `ci` and every
+pull request.
 
 `just setup` writes shims into the clone's own hooks directory. Each shim
 runs the tracked hook under `.githooks/` and refuses when that hook is

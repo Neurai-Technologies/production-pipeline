@@ -16,9 +16,12 @@ third-party services we use, social engineering, denial of service.
 
 - Credentials, private keys, signing keys, service-account files, upload
   keystores, runtime data, dumps and logs never enter Git. `.gitignore` is the
-  first layer; the pre-commit hook refuses sensitive paths even when
-  force-added; Gitleaks scans the staged change, the full history on push,
-  and the full history again in CI. A missing scanner fails the gate.
+  first layer. In a clone where `just setup` ran, the pre-commit hook refuses
+  sensitive paths even when force-added, and the hooks run Gitleaks on the
+  staged change and on the full history before a push; session git writes go
+  through `git-gate`, which runs no hooks. CI is what enforces: on every push
+  to `ci` and every pull request it refuses sensitive paths and scans the full
+  history. A missing scanner fails the gate.
 - The path list in `scripts/sensitive-paths.sh` is the single definition the
   hook and `just ci` share; `.gitignore` mirrors it. A gitignore entry alone
   is bypassed by `git add -f`.
@@ -69,10 +72,11 @@ third-party services we use, social engineering, denial of service.
 - `.claude/settings.json` turns the OS sandbox on for this repository,
   denies reads of secret files at the syscall level, and denies sandboxed
   writes to the tracked hooks, the scanner config and the path gate, since
-  those run later outside the sandbox. A `Bash` deny alone is not a
-  boundary (`bash -c` walks past it); the sandbox is. The `justfile` and
-  `scripts/check_docs.py` stay writable and the hook runs them, so their
-  diffs get a human look. Keep the read lists in step with
+  those run later outside the sandbox, in the owner's terminal and in CI. A
+  `Bash` deny alone is not a boundary (`bash -c` walks past it); the sandbox
+  is. The `justfile` and `scripts/check_docs.py` stay writable and the owner's
+  hooks run them, so their diffs get a human look. Keep the read lists in step
+  with
   `scripts/sensitive-paths.sh`.
 - Repository content is untrusted input to an agent. `just ci` fails on
   hidden Unicode (control, format, private-use, unassigned, separator and
@@ -181,10 +185,12 @@ third-party services we use, social engineering, denial of service.
 
 ## Current enforcement
 
-`just setup` installs the tracked hooks. `just ci` runs the documentation and
-hidden-content check, the sensitive-path check, the Gitleaks bypass check, and
-Gitleaks over the current tree and the history. The GitHub baseline workflow
-does the same after a full-history checkout, and on each run also fails
+`just setup` installs the tracked hooks, which run on the owner's commits and
+pushes from a terminal; `git-gate` never runs them. `just ci` runs the
+documentation and hidden-content check, the sensitive-path check, the Gitleaks
+bypass check, and Gitleaks over the current tree and the history. The GitHub
+baseline workflow, on every push to `ci` and every pull request, does the same
+after a full-history checkout, and on each run also fails
 while GitHub Pages is on (unless `PAGES_ALLOWED`), a check that needs
 GitHub's API and so has no local equivalent. Secret scanning does not
 replace application security tests or human review.

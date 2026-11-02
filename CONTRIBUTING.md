@@ -1,6 +1,9 @@
 # Contributing
 
-- `just setup` once per clone from a normal shell, again after moving it.
+- `just setup` once per clone from a normal shell, again after moving it: the
+  tracked hooks then run on commits and pushes from that terminal. An agent
+  session's git writes go through `git-gate`, which runs no hooks; CI runs the
+  same checks on every push to `ci` and every pull request.
 - The working agreement is the agent file for your tool (CLAUDE.md,
   AGENTS.md or GEMINI.md); humans follow the same rules.
 - `just ci` must pass; never bypass a hook. Conventional commits, no AI

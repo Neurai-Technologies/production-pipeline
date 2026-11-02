@@ -111,8 +111,9 @@ from this file, and `just ci` fails when the copies differ.
 
 - Never commit secrets, private keys, signing material, service-account files,
   local credentials, databases, dumps, user data or logs. Examples contain
-  obvious placeholders only. `.gitignore` is not a secret scanner; the hooks
-  and CI scan every commit and the full history, and a leak means rotate first,
+  obvious placeholders only. `.gitignore` is not a secret scanner; CI scans the
+  full history on every push to `ci` and every pull request, the tracked hooks
+  also scan in a clone where `just setup` ran, and a leak means rotate first,
   then clean history.
 - Anything compiled into a web or mobile client is public: a `PUBLIC_` or
   `--dart-define` value is extractable. Privileged keys live on a server the
@@ -220,11 +221,12 @@ from this file, and `just ci` fails when the copies differ.
 - Run `/compact` above about 80% context. Do not invoke slash commands or
   plugins the operator is dogfooding unless asked.
 - In a sandbox, writes to `.git/hooks` and `.git/config` are refused by
-  design; `just setup` runs from a normal shell. Commit and push with the
-  normal global Git config; overriding it (`GIT_CONFIG_GLOBAL=/dev/null`)
-  drops commit signing, the GitHub credential helper and, before
-  `just setup`, every hook. Report tools the sandbox cannot see as
-  unverified.
+  design; `just setup` runs from a normal shell. `git-gate` never runs the
+  tracked hooks: they are the owner's local guardrail, and CI is what enforces.
+  The owner's terminal commits and pushes use the normal global Git config;
+  overriding it (`GIT_CONFIG_GLOBAL=/dev/null`) drops commit signing, the
+  GitHub credential helper and, before `just setup`, every hook. Report tools
+  the sandbox cannot see as unverified.
 
 ## This project
 
