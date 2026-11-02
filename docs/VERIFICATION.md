@@ -192,6 +192,24 @@ paragraphs; keep history.
     unwritable heartbeat folder, the nightly host mirror, off-site upload,
     retention pruning, the log archiver, and amd64. The bind-mounted
     directories lived inside the VM, not on a host disk.
+- 2026-11-02, commit 10adbd73a141a163ae937146f0e0987fa63e50dc (v0.1.7), on a
+  disposable Docker VM. Command, with `DOCKER_HOST` naming that VM:
+  `bash checks/backup-restore-drill.sh <report file> <host bind folder>`.
+  Result: PASS on PostgreSQL 16 (`postgres:16.15-alpine`) and 17
+  (`postgres:17.11-alpine`), with the generic log archive.
+  - File and size: `fakedump-*.sql.gz.enc` with its `.hmac`, 83072 bytes for
+    both majors, written to a volume and to a bind-mounted host folder.
+  - Integrity: a dump with one byte changed was refused at the HMAC check
+    and the scratch database stayed empty; the untouched dump restored.
+  - Row counts: two tables (500 and 3000 rows) and a sequence; counts and an
+    md5 over each table's ordered rows matched between source and restored.
+  - Log archive: one fixture log (224 bytes encrypted) decrypted back to its
+    per-run line, for both majors.
+  - Secret: the drill's check found neither disposable secret in its output.
+  - Cleanup: the run's containers, volumes, network and images were removed.
+  - Not verified: a product's real data and init script, off-site copies
+    (off in this run), and the daemon's Docker version and architecture,
+    which the report does not record.
 
 ### Shared crypto verification
 
