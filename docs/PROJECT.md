@@ -19,7 +19,9 @@
   (`.github/workflows/promote.yml`, with `GITHUB_TOKEN`; no other token,
   environment or secret). The owner pushes `ci` and creates tags from a
   terminal, because sessions cannot write to this organisation's
-  repositories. `git-gate` is the only route for session git writes. `lint`,
+  repositories. If GitHub refuses a promotion, for example one that changes
+  a workflow file, the owner pushes that same green sha to `main` by hand.
+  `git-gate` is the only route for session git writes. `lint`,
   `code-reviewer` and `security-engineer` run once per batch over the range.
   No deploy-on-push. A release is an immutable tag `vX.Y.Z` on `main`. Release
   owner: the Neurai Technologies Private Limited repository administrator.
