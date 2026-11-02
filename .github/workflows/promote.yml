@@ -1,0 +1,38 @@
+name: promote
+
+# A push to ci is the release route: when every run on a ci sha is green, main
+# fast-forwards to it. The gate and the push are this library's own
+# reusable-promote at a release commit, so a candidate cannot change them. A
+# bump resolves the tag again and never writes a tag back.
+
+on:
+  workflow_run:
+    workflows: ["Repository checks"]
+    types: [completed]
+
+permissions:
+  contents: read
+
+jobs:
+  promote:
+    name: fast-forward main
+    # The event check is load-bearing: head_branch alone would also match a
+    # pull_request run from a fork branch named ci.
+    if: >-
+      github.event.workflow_run.event == 'push'
+      && github.event.workflow_run.head_repository.full_name == github.repository
+      && github.event.workflow_run.head_branch == 'ci'
+      && github.event.workflow_run.conclusion == 'success'
+    # Exactly what the GITHUB_TOKEN path needs: the gate lists the sha's runs,
+    # and the push job keeps these permissions to push main.
+    permissions:
+      contents: write
+      actions: read
+    uses: Neurai-Technologies/production-pipeline/.github/workflows/reusable-promote.yml@10adbd73a141a163ae937146f0e0987fa63e50dc # v0.1.7
+    with:
+      source-branch: ci
+      target-branch: main
+      tests-workflow: .github/workflows/ci.yml
+      post-release-workflows: .github/workflows/promote.yml
+      # No token, environment or secret: fast-forward only, with GITHUB_TOKEN.
+      github-token-push: true
