@@ -141,7 +141,8 @@ third-party services we use, social engineering, denial of service.
   re-run; that fails safe.
 - A Postgres service in CI trusts every connection; that is safe only on a
   disposable hosted runner.
-- Dependabot PRs get no CI and are never merged from the button.
+- Dependabot PRs run CI with a read-only token and no secrets, and are never
+  merged from the button.
 - GitHub Pages on a private repository publishes a public site (private
   Pages needs GitHub Enterprise Cloud), and a branch-root source serves every
   committed file. Pages stays off unless the repository is a website that

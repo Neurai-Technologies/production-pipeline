@@ -137,8 +137,9 @@ from this file, and `just ci` fails when the copies differ.
   VMs or services.
 - Third-party CLI telemetry is off in every automated environment.
 - Deploy workflows guard on `event == push`, the exact branch, and the same
-  repository; a fork branch can be named `main`. Dependency-bot PRs get no CI;
-  apply the bump locally and push it through the normal path.
+  repository; a fork branch can be named `main`. Dependency-bot PRs run CI with
+  a read-only token and are never merged from the button; apply the bump
+  locally and push it through the normal path.
 - CI secrets (deploy tokens, API keys) live in a GitHub environment whose
   deployment branches are `main` only, and only the job that needs them
   names that environment. Never as repository or organisation secrets:
