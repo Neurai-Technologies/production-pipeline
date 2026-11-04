@@ -38,6 +38,9 @@
 # TMPDIR itself to keep the plaintext off the default temp folder.
 set -eu
 set -o pipefail
+# The caller's choices, taken before the settings file can replace them.
+caller_require_v2="${RESTORE_REQUIRE_V2:-}"
+caller_unverified="${RESTORE_UNVERIFIED:-}"
 # Settings: the product's product.settings, named by PRODUCT_SETTINGS (vm-autostart
 # passes its installed copy; the drill passes the one it was given).
 # shellcheck source=/dev/null
@@ -78,14 +81,14 @@ echo "restoring into compose project: ${PROJECT}" >&2
 # retains the explicit legacy opt-in for dumps predating authenticated sidecars.
 . "$(dirname "$0")/backup/crypto.sh"
 decrypt_option=--warn-legacy
-[ "${RESTORE_REQUIRE_V2:-}" != 1 ] || decrypt_option=--require-v2
+[ "$caller_require_v2" != 1 ] || decrypt_option=--require-v2
 verified=1
 if [ ! -f "${file}.hmac" ]; then
-    if [ "${RESTORE_REQUIRE_V2:-}" = 1 ]; then
+    if [ "$caller_require_v2" = 1 ]; then
         echo "REFUSED: ${file}.hmac is missing, and this restore requires a v2 sidecar." >&2
         exit 1
     fi
-    if [ "${RESTORE_UNVERIFIED:-0}" != 1 ]; then
+    if [ "$caller_unverified" != 1 ]; then
         echo "REFUSED: ${file}.hmac is missing. Dumps written before the sidecar existed have none; set RESTORE_UNVERIFIED=1 to restore one anyway." >&2
         exit 1
     fi

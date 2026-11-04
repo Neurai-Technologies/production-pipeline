@@ -747,6 +747,51 @@ def test_an_empty_require_v2_leaves_the_by_hand_restore_as_it_was(
     assert received.read_text() == FAKE_DUMP
 
 
+def settings_also_say(env: ProductSettings, lines: str) -> None:
+    with env.path.open("a") as settings:
+        settings.write(lines)
+
+
+def test_settings_cannot_loosen_what_an_automatic_restore_asked_for(
+    tmp_path: Path, backup_dir: Path, env: ProductSettings
+) -> None:
+    """vm-autostart passes these two; a line in the settings file must not replace them."""
+    settings_also_say(env, "RESTORE_REQUIRE_V2=\nRESTORE_UNVERIFIED=1\n")
+    dump = dumps(backup_dir, env)[0]
+    Path(f"{dump}.hmac").write_text(f"{hmac_via(BACKUP, dump, env.values['BACKUP_HMAC_SALT'])}\n")
+    result, received = restore(tmp_path, env, dump, RESTORE_UNVERIFIED="", RESTORE_REQUIRE_V2="1")
+    assert result.returncode == 1 and "requires a v2 .hmac sidecar" in result.stderr
+    assert not received.exists(), "a legacy dump reached psql"
+    Path(f"{dump}.hmac").unlink()
+    result, received = restore(tmp_path, env, dump, RESTORE_UNVERIFIED="", RESTORE_REQUIRE_V2="1")
+    assert result.returncode == 1 and "requires a v2 sidecar" in result.stderr
+    assert not received.exists(), "a dump with no sidecar reached psql"
+    assert not plaintext_left(tmp_path, env)
+
+
+def test_settings_cannot_open_a_restore_by_hand_that_set_nothing(
+    tmp_path: Path, backup_dir: Path, env: ProductSettings
+) -> None:
+    settings_also_say(env, "RESTORE_UNVERIFIED=1\n")
+    dump = dumps(backup_dir, env)[0]
+    Path(f"{dump}.hmac").unlink()
+    result, received = restore(tmp_path, env, dump)
+    assert result.returncode == 1 and "RESTORE_UNVERIFIED=1" in result.stderr
+    assert not received.exists(), "a dump with no sidecar reached psql"
+
+
+def test_settings_cannot_refuse_what_a_restore_by_hand_asked_for(
+    tmp_path: Path, backup_dir: Path, env: ProductSettings
+) -> None:
+    """The caller's own values hold in the other direction too."""
+    settings_also_say(env, "RESTORE_REQUIRE_V2=1\nRESTORE_UNVERIFIED=\n")
+    dump = dumps(backup_dir, env)[0]
+    Path(f"{dump}.hmac").unlink()
+    result, received = restore(tmp_path, env, dump, RESTORE_UNVERIFIED="1")
+    assert result.returncode == 0, result.stderr
+    assert received.read_text() == FAKE_DUMP
+
+
 def test_restore_cannot_fall_back_when_a_checked_sidecar_disappears(
     tmp_path: Path, backup_dir: Path, env: ProductSettings
 ) -> None:
