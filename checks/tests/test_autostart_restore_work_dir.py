@@ -48,6 +48,36 @@ ACL_LS = (
 REAL_LS = f'exec {LS_PATH} "$@"\n'
 DATE_PATH = shlex.quote(str(shutil.which("date")))
 macos_only = pytest.mark.skipif(sys.platform != "darwin", reason="chmod +a and ls -e are macOS-only")
+# The script reads a dump's name with BSD date, and CI runs on Linux. This fake
+# answers those two forms as macOS does, measured there: a day its month lacks
+# carries over (20260230 into March), so only the script's round trip rejects it,
+# and what BSD strptime cannot parse fails. A changed form fails too; every call
+# without -j goes to the real date.
+FAKE_BSD_DATE = (
+    f'[ "$1" = -j ] || exec {DATE_PATH} "$@"\n'
+    f"exec {shlex.quote(sys.executable)} - \"$@\" <<'EOF'\n"
+    """import calendar
+import re
+import sys
+import time
+
+FORMAT = "%Y%m%d-%H%M%S"
+args = sys.argv[1:]
+if args[:4] == ["-j", "-u", "-f", FORMAT] and args[5:] == ["+%s"]:
+    match = re.fullmatch(r"(\\d{4})(\\d\\d)(\\d\\d)-(\\d\\d)(\\d\\d)(\\d\\d)", args[4])
+    if match is None:
+        sys.exit(1)
+    year, month, day, hour, minute, second = (int(field) for field in match.groups())
+    if not (1 <= month <= 12 and day <= 31 and hour <= 23 and minute <= 59 and second <= 60):
+        sys.exit(1)
+    print(calendar.timegm((year, month, day, hour, minute, second)))
+elif args[:3] == ["-j", "-u", "-r"] and args[4:] == ["+" + FORMAT]:
+    print(time.strftime(FORMAT, time.gmtime(int(args[3]))))
+else:
+    sys.exit(f"fake date: unknown form {args}")
+EOF
+"""
+)
 
 
 @pytest.fixture
@@ -62,6 +92,12 @@ def private_dir(tmp_path: Path) -> Path:
     folder.mkdir()
     folder.chmod(0o700)
     return folder
+
+
+def use_bsd_date(bin_dir: Path) -> None:
+    """Where date is not BSD, the fake goes in bin_dir; macOS keeps its real date."""
+    if sys.platform != "darwin":
+        fake(bin_dir, "date", FAKE_BSD_DATE)
 
 
 def step_6(script: Path) -> str:
@@ -119,15 +155,8 @@ def build_world(
     )
     fake(bin_dir, "colima", f'[ "$1" = ssh ] && echo {shlex.quote(values["DATA_DISK_DEVICE"])}\nexit 0\n')
     fake(bin_dir, "osascript", f'printf "%s\\n" "$*" >>{shlex.quote(str(tmp_path / "alerts.log"))}\n')
-    # The script reads a dump's date with BSD date; CI runs on Linux. These tests
-    # are not about dates: the two -j calls answer for the one dump, made just now.
-    now = int(time.time())
-    stamp = time.strftime("%Y%m%d-%H%M%S", time.gmtime(now))
-    fake(
-        bin_dir,
-        "date",
-        f'[ "$1" = -j ] || exec {DATE_PATH} "$@"\nif [ "$3" = -f ]; then echo {now}; else echo {stamp}; fi\n',
-    )
+    use_bsd_date(bin_dir)
+    stamp = time.strftime("%Y%m%d-%H%M%S", time.gmtime())
     fake(bin_dir, "ls", NO_ACL_LS)
     for name, body in (extra_fakes or {}).items():
         fake(bin_dir, name, body)

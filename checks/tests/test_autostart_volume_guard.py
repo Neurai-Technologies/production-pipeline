@@ -28,9 +28,11 @@ import pytest
 
 from conftest import ProductSettings
 from tests.shell import assignment, fake, lift, path_with
-from tests.test_autostart_restore_work_dir import step_6
+from tests.test_autostart_restore_work_dir import step_6, use_bsd_date
 
-macos_only = pytest.mark.skipif(sys.platform != "darwin", reason="the script parses dump names with BSD date")
+macos_only = pytest.mark.skipif(
+    sys.platform != "darwin", reason="needs the real BSD date's time-zone handling"
+)
 V2_SIDECAR = "v2 " + "0" * 64 + "\n"
 LEGACY_SIDECAR = "0" * 64 + "\n"
 
@@ -43,6 +45,14 @@ def script(library_root: Path) -> Path:
 @pytest.fixture
 def env(product_settings: Callable[..., ProductSettings]) -> ProductSettings:
     return product_settings()
+
+
+@pytest.fixture(autouse=True)
+def bsd_date(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The dump choice runs under whatever date is first on PATH: see use_bsd_date."""
+    bin_dir = tmp_path / "date-bin"
+    use_bsd_date(bin_dir)
+    monkeypatch.setenv("PATH", f"{bin_dir}:{os.environ['PATH']}")
 
 
 def prelude(script: Path, env: ProductSettings) -> str:
@@ -440,7 +450,6 @@ def login_restore(
     return result, called
 
 
-@macos_only
 def test_a_touched_older_dump_is_not_chosen_over_a_newer_name(script: Path, env: ProductSettings) -> None:
     """The attack: file times are not authenticated, so `touch` used to select any older dump."""
     older = put_dump(env, stamp(7200))
@@ -450,7 +459,6 @@ def test_a_touched_older_dump_is_not_chosen_over_a_newer_name(script: Path, env:
     assert f"chosen={newer}\n" in result.stdout, result.stdout + result.stderr
 
 
-@macos_only
 def test_an_old_name_with_a_fresh_file_time_is_refused_by_the_cap(
     tmp_path: Path, script: Path, env: ProductSettings
 ) -> None:
@@ -461,7 +469,6 @@ def test_an_old_name_with_a_fresh_file_time_is_refused_by_the_cap(
     assert not called.exists(), "a stale dump reached restore.sh"
 
 
-@macos_only
 def test_a_recent_name_with_an_ancient_file_time_passes_the_cap(
     tmp_path: Path, script: Path, env: ProductSettings
 ) -> None:
@@ -472,7 +479,6 @@ def test_a_recent_name_with_an_ancient_file_time_passes_the_cap(
     assert "(1h old)" in result.stderr
 
 
-@macos_only
 @pytest.mark.parametrize(
     "bad",
     [
@@ -500,7 +506,6 @@ def test_a_malformed_name_is_skipped_and_logged(script: Path, env: ProductSettin
     assert "not_v2=0\n" in result.stdout, "a bad name was counted as a legacy dump"
 
 
-@macos_only
 def test_only_malformed_names_read_as_no_dumps(tmp_path: Path, script: Path, env: ProductSettings) -> None:
     put_dump(env, "20260230-000000")
     result, called = login_restore(tmp_path, script, env)
@@ -510,7 +515,6 @@ def test_only_malformed_names_read_as_no_dumps(tmp_path: Path, script: Path, env
     assert not called.exists()
 
 
-@macos_only
 def test_a_name_past_the_future_limit_is_skipped_and_logged(script: Path, env: ProductSettings) -> None:
     ahead = put_dump(env, stamp(-900))
     good = put_dump(env, stamp(3600))
@@ -519,7 +523,6 @@ def test_a_name_past_the_future_limit_is_skipped_and_logged(script: Path, env: P
     assert f"skipping {ahead.name}: its name is dated more than 600s ahead" in result.stdout
 
 
-@macos_only
 def test_a_name_inside_the_future_limit_is_accepted(script: Path, env: ProductSettings) -> None:
     """A little clock skew between the backup and this Mac must not cost a restore."""
     ahead = put_dump(env, stamp(-300))
@@ -529,7 +532,6 @@ def test_a_name_inside_the_future_limit_is_accepted(script: Path, env: ProductSe
     assert "skipping" not in result.stdout
 
 
-@macos_only
 def test_a_legacy_dump_is_not_chosen_over_an_older_v2_dump(script: Path, env: ProductSettings) -> None:
     put_dump(env, stamp(600), sidecar=LEGACY_SIDECAR)
     v2 = put_dump(env, stamp(7200))
@@ -538,7 +540,6 @@ def test_a_legacy_dump_is_not_chosen_over_an_older_v2_dump(script: Path, env: Pr
     assert "not_v2=1\n" in result.stdout
 
 
-@macos_only
 @pytest.mark.parametrize("sidecar", [LEGACY_SIDECAR, None, "v2", "V2 " + "0" * 64, "v3 " + "0" * 64])
 def test_only_dumps_without_a_v2_sidecar_name_the_by_hand_route(
     tmp_path: Path, script: Path, env: ProductSettings, sidecar: str | None
@@ -551,7 +552,6 @@ def test_only_dumps_without_a_v2_sidecar_name_the_by_hand_route(
     assert not called.exists(), "unattended restore used a dump without a v2 sidecar"
 
 
-@macos_only
 def test_a_symlinked_sidecar_is_not_a_v2_sidecar(tmp_path: Path, script: Path, env: ProductSettings) -> None:
     """restore.sh takes plain files only; choosing this one would only fail later."""
     dump = put_dump(env, stamp(3600), sidecar=None)
@@ -562,7 +562,6 @@ def test_a_symlinked_sidecar_is_not_a_v2_sidecar(tmp_path: Path, script: Path, e
     assert "chosen=\n" in result.stdout and "not_v2=1\n" in result.stdout, result.stdout + result.stderr
 
 
-@macos_only
 @pytest.mark.parametrize(
     ("malformed", "ahead", "legacy"),
     [(1, 0, 0), (0, 1, 0), (0, 0, 1), (2, 1, 2)],
@@ -586,7 +585,6 @@ def test_the_alert_counts_the_dumps_skipped_or_passed_over(
     assert f"{dump.name} (1h old) - {count} dump(s) skipped or passed over, see the log" in result.stderr
 
 
-@macos_only
 def test_the_alert_says_nothing_of_skips_when_there_are_none(
     tmp_path: Path, script: Path, env: ProductSettings
 ) -> None:
@@ -597,7 +595,6 @@ def test_the_alert_says_nothing_of_skips_when_there_are_none(
     assert f"[alert] database volume missing - auto-restoring {dump.name} (1h old)\n" in result.stderr
 
 
-@macos_only
 def test_no_dumps_at_all_keeps_the_no_dumps_message(
     tmp_path: Path, script: Path, env: ProductSettings
 ) -> None:
@@ -621,10 +618,7 @@ def test_the_name_is_read_as_utc_in_any_time_zone(script: Path, env: ProductSett
 def test_a_forged_file_name_logs_one_line_with_its_odd_characters_replaced(
     script: Path, env: ProductSettings
 ) -> None:
-    """The log is the only record of which dump was skipped, so a name must not be able to write a line.
-
-    Runs everywhere: this name stops at the pattern, before the BSD date call.
-    """
+    """The log is the only record of which dump was skipped, so a name must not be able to write a line."""
     prefix = env.values["BACKUP_PREFIX"]
     folder = Path(env.values["BACKUP_DIR"])
     folder.mkdir(parents=True)
