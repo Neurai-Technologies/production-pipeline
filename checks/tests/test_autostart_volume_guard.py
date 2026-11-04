@@ -14,9 +14,13 @@ depending on errexit would quietly prove something else.
 
 from __future__ import annotations
 
+import calendar
+import os
 import re
 import shlex
 import subprocess
+import sys
+import time
 from collections.abc import Callable
 from pathlib import Path
 
@@ -24,6 +28,11 @@ import pytest
 
 from conftest import ProductSettings
 from tests.shell import assignment, fake, lift, path_with
+from tests.test_autostart_restore_work_dir import step_6
+
+macos_only = pytest.mark.skipif(sys.platform != "darwin", reason="the script parses dump names with BSD date")
+V2_SIDECAR = "v2 " + "0" * 64 + "\n"
+LEGACY_SIDECAR = "0" * 64 + "\n"
 
 
 @pytest.fixture
@@ -367,3 +376,215 @@ def test_a_failed_count_is_not_an_empty_table(tmp_path: Path, script: Path, env:
     result = users_count(tmp_path, script, env, answer="could not connect to server", exit_code=2)
     assert result.returncode == 1
     assert "failed (exit 2)" in result.stderr and "empty" not in result.stderr
+
+
+def stamp(seconds_ago: int) -> str:
+    """The UTC date backup.sh would put in a dump's name, `seconds_ago` before now."""
+    return time.strftime("%Y%m%d-%H%M%S", time.gmtime(time.time() - seconds_ago))
+
+
+def put_dump(
+    env: ProductSettings, date_text: str, sidecar: str | None = V2_SIDECAR, file_age_days: int = 0
+) -> Path:
+    """A dump named for date_text; its file time is set apart from the name on purpose."""
+    folder = Path(env.values["BACKUP_DIR"])
+    folder.mkdir(parents=True, exist_ok=True)
+    path = folder / f"{env.values['BACKUP_PREFIX']}-{date_text}.sql.gz.enc"
+    path.write_text("ciphertext")
+    file_time = time.time() - file_age_days * 86400
+    os.utime(path, (file_time, file_time))
+    if sidecar is not None:
+        Path(f"{path}.hmac").write_text(sidecar)
+    return path
+
+
+def pick(script: Path, env: ProductSettings, tz: str = "UTC") -> subprocess.CompletedProcess:
+    """pick_newest_dump, lifted from the script, with what it chose printed last."""
+    code = (
+        prelude(script, env)
+        + f"{assignment(script, 'REPO')}\n{assignment(script, 'BK')}\n"
+        + lift(script, "pick_newest_dump")
+        + 'pick_newest_dump\nprintf "chosen=%s\\nepoch=%s\\nnot_v2=%s\\n" "$newest" "$newest_epoch" "$not_v2"\n'
+    )
+    return subprocess.run(
+        ["bash", "-c", code], capture_output=True, text=True, env={**os.environ, "TZ": tz}, check=False
+    )
+
+
+def login_restore(
+    tmp_path: Path, script: Path, env: ProductSettings
+) -> tuple[subprocess.CompletedProcess, Path]:
+    """Step 6 up to the restore.sh call, under a stub restore.sh that records its dump."""
+    bin_dir = tmp_path / "bin"
+    fake(bin_dir, "docker", "exit 0\n")
+    checkout = Path(env.values["REPO_DIR"])
+    (checkout / env.values["COMPOSE_DIR"]).mkdir(parents=True)
+    called = tmp_path / "restore-called"
+    stub = checkout / env.values["LIBRARY_DIR"] / "deploy" / "restore.sh"
+    stub.parent.mkdir(parents=True)
+    stub.write_text(f'printf %s "$1" >{shlex.quote(str(called))}\n')
+    names = ("REPO", "BK", "MAX_DUMP_AGE_HOURS", "FAILED_MARK")
+    code = (
+        prelude(script, env)
+        + "".join(f"{assignment(script, name)}\n" for name in names)
+        # The work folder has its own tests; here it must not get in the way.
+        + "RESTORE_WORK_DIR=\n"
+        + lift(script, "fail")
+        + step_6(script)
+        # What the cleanup trap reads: a stub that ran is not a failed restore.
+        + "RESTORE_OK=1\n"
+    )
+    result = subprocess.run(
+        ["bash", "-c", code], capture_output=True, text=True, env=path_with(bin_dir), check=False
+    )
+    return result, called
+
+
+@macos_only
+def test_a_touched_older_dump_is_not_chosen_over_a_newer_name(script: Path, env: ProductSettings) -> None:
+    """The attack: file times are not authenticated, so `touch` used to select any older dump."""
+    older = put_dump(env, stamp(7200))
+    newer = put_dump(env, stamp(3600), file_age_days=30)
+    os.utime(older)
+    result = pick(script, env)
+    assert f"chosen={newer}\n" in result.stdout, result.stdout + result.stderr
+
+
+@macos_only
+def test_an_old_name_with_a_fresh_file_time_is_refused_by_the_cap(
+    tmp_path: Path, script: Path, env: ProductSettings
+) -> None:
+    put_dump(env, stamp(72 * 3600))
+    result, called = login_restore(tmp_path, script, env)
+    assert result.returncode == 1
+    assert "newest dump is 72h old (cap 48h)" in result.stderr
+    assert not called.exists(), "a stale dump reached restore.sh"
+
+
+@macos_only
+def test_a_recent_name_with_an_ancient_file_time_passes_the_cap(
+    tmp_path: Path, script: Path, env: ProductSettings
+) -> None:
+    dump = put_dump(env, stamp(3600), file_age_days=400)
+    result, called = login_restore(tmp_path, script, env)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert called.read_text() == str(dump)
+    assert "(1h old)" in result.stderr
+
+
+@macos_only
+@pytest.mark.parametrize(
+    "bad",
+    [
+        "2026101-000000",
+        "202610101-000000",
+        "20261010-00000",
+        "20261010-0000000",
+        "20261010000000",
+        "abcdefgh-000000",
+        "20260230-000000",
+        "20261301-000000",
+        "20261010-250000",
+        "20261010-000000-extra",
+        "x20261010-000000",
+    ],
+)
+def test_a_malformed_name_is_skipped_and_logged(script: Path, env: ProductSettings, bad: str) -> None:
+    """Valid v2 sidecars, and a sound dump beside them, so the name is the only thing refused."""
+    put_dump(env, bad)
+    good = put_dump(env, stamp(3600))
+    result = pick(script, env)
+    assert f"chosen={good}\n" in result.stdout, result.stdout + result.stderr
+    lines = [line for line in result.stdout.splitlines() if line.startswith("skipping ")]
+    assert len(lines) == 1 and f"{env.values['BACKUP_PREFIX']}-{bad}.sql.gz.enc" in lines[0], result.stdout
+    assert "not_v2=0\n" in result.stdout, "a bad name was counted as a legacy dump"
+
+
+@macos_only
+def test_only_malformed_names_read_as_no_dumps(tmp_path: Path, script: Path, env: ProductSettings) -> None:
+    put_dump(env, "20260230-000000")
+    result, called = login_restore(tmp_path, script, env)
+    assert result.returncode == 1
+    assert "no dumps in" in result.stderr
+    assert "skipping" in result.stdout
+    assert not called.exists()
+
+
+@macos_only
+def test_a_name_past_the_future_limit_is_skipped_and_logged(script: Path, env: ProductSettings) -> None:
+    ahead = put_dump(env, stamp(-900))
+    good = put_dump(env, stamp(3600))
+    result = pick(script, env)
+    assert f"chosen={good}\n" in result.stdout, result.stdout + result.stderr
+    assert f"skipping {ahead.name}: its name is dated more than 600s ahead" in result.stdout
+
+
+@macos_only
+def test_a_name_inside_the_future_limit_is_accepted(script: Path, env: ProductSettings) -> None:
+    """A little clock skew between the backup and this Mac must not cost a restore."""
+    ahead = put_dump(env, stamp(-300))
+    put_dump(env, stamp(3600))
+    result = pick(script, env)
+    assert f"chosen={ahead}\n" in result.stdout, result.stdout + result.stderr
+    assert "skipping" not in result.stdout
+
+
+@macos_only
+def test_a_legacy_dump_is_not_chosen_over_an_older_v2_dump(script: Path, env: ProductSettings) -> None:
+    put_dump(env, stamp(600), sidecar=LEGACY_SIDECAR)
+    v2 = put_dump(env, stamp(7200))
+    result = pick(script, env)
+    assert f"chosen={v2}\n" in result.stdout, result.stdout + result.stderr
+    assert "not_v2=1\n" in result.stdout
+
+
+@macos_only
+@pytest.mark.parametrize("sidecar", [LEGACY_SIDECAR, None, "v2", "V2 " + "0" * 64, "v3 " + "0" * 64])
+def test_only_dumps_without_a_v2_sidecar_name_the_by_hand_route(
+    tmp_path: Path, script: Path, env: ProductSettings, sidecar: str | None
+) -> None:
+    put_dump(env, stamp(3600), sidecar=sidecar)
+    result, called = login_restore(tmp_path, script, env)
+    assert result.returncode == 1
+    assert "1 dump(s)" in result.stderr and "by hand with restore.sh" in result.stderr
+    assert "no dumps in" not in result.stderr.replace(env.values["BACKUP_DIR"], "")
+    assert not called.exists(), "unattended restore used a dump without a v2 sidecar"
+
+
+@macos_only
+def test_a_symlinked_sidecar_is_not_a_v2_sidecar(tmp_path: Path, script: Path, env: ProductSettings) -> None:
+    """restore.sh takes plain files only; choosing this one would only fail later."""
+    dump = put_dump(env, stamp(3600), sidecar=None)
+    target = tmp_path / "elsewhere"
+    target.write_text(V2_SIDECAR)
+    Path(f"{dump}.hmac").symlink_to(target)
+    result = pick(script, env)
+    assert "chosen=\n" in result.stdout and "not_v2=1\n" in result.stdout, result.stdout + result.stderr
+
+
+@macos_only
+def test_no_dumps_at_all_keeps_the_no_dumps_message(
+    tmp_path: Path, script: Path, env: ProductSettings
+) -> None:
+    Path(env.values["BACKUP_DIR"]).mkdir(parents=True)
+    result, called = login_restore(tmp_path, script, env)
+    assert result.returncode == 1
+    assert "no dumps in" in result.stderr and "skipping" not in result.stdout
+    assert not called.exists()
+
+
+@macos_only
+@pytest.mark.parametrize("tz", ["UTC", "Asia/Kolkata", "America/New_York"])
+def test_the_name_is_read_as_utc_in_any_time_zone(script: Path, env: ProductSettings, tz: str) -> None:
+    """backup.sh writes the name with `date -u`; read as local time, IST would age it by 5.5 hours."""
+    put_dump(env, "20260101-120000")
+    result = pick(script, env, tz=tz)
+    expected = calendar.timegm((2026, 1, 1, 12, 0, 0))
+    assert f"epoch={expected}\n" in result.stdout, result.stdout + result.stderr
+
+
+def test_nothing_in_step_6_reads_a_file_time(script: Path) -> None:
+    """Runs everywhere, so a Linux CI still notices the old selection coming back."""
+    chosen = step_6(script).split('alert "database volume missing', 1)[0]
+    for reader in ("ls -t", "stat ", "-mtime", "-newer"):
+        assert reader not in chosen, f"step 6 reads a file time again: {reader}"

@@ -19,6 +19,12 @@
 # restore itself only fires when the disk is verified AND the volume is
 # genuinely absent AND the dump is fresh.
 #
+# A dump's order and age come from its file NAME, never from file times: those
+# are not authenticated, so touching an older genuine dump on a removable disk
+# would select it and pass the age cap. Only a v2 sidecar binds the name into
+# the HMAC, and restore.sh refuses a renamed dump, so auto-restore uses only
+# dumps with one; a legacy dump is restored by hand with restore.sh.
+#
 # The restore path executes LIBRARY_DIR's restore.sh and COMPOSE_DIR's
 # docker-compose.yml from the repo working tree at login. That is a
 # deliberate, operator-accepted exception to the installed-copy rule the
@@ -299,10 +305,61 @@ fi
 
 # 6. Guarded auto-restore: datadisk verified (step 4), volume genuinely
 #    absent, dump fresh. All three or nothing.
+#
+# Fresh is read from the UTC date backup.sh puts in the dump's name. Nothing
+# here trusts a file time. Nothing here trusts the name or the sidecar's marker
+# either, until restore.sh has verified the HMAC that binds them: a forged name
+# or marker only makes it refuse, and the run then fails hard, with no fall back
+# to an older dump. What this cannot see is a newer dump deleted from the disk;
+# the older one left is then the newest, and the age cap is what bounds that.
 echo "${PGDATA_VOLUME} is absent on a verified datadisk - entering auto-restore"
-newest=$(ls -t "$BK/${BACKUP_PREFIX}"-*.sql.gz.enc 2>/dev/null | head -1)
-[ -n "$newest" ] || fail "no dumps in ${BK} - cannot auto-restore, restore manually"
-age_h=$(( ( $(date +%s) - $(stat -f %m "$newest") ) / 3600 ))
+# Sets newest to the v2 dump with the greatest name date, newest_epoch to that
+# date, and not_v2 to how many dumps were passed over for their sidecar.
+pick_newest_dump() {
+    local dump name stamp epoch now
+    now=$(date +%s)
+    newest=""
+    newest_epoch=0
+    not_v2=0
+    for dump in "$BK/${BACKUP_PREFIX}"-*.sql.gz.enc; do
+        # A pattern that matched nothing stays as its own text.
+        [ -e "$dump" ] || [ -L "$dump" ] || continue
+        name=$(basename "$dump")
+        stamp=${name#"${BACKUP_PREFIX}"-}
+        stamp=${stamp%.sql.gz.enc}
+        case "$stamp" in
+            [0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]-[0-9][0-9][0-9][0-9][0-9][0-9]) ;;
+            *) echo "skipping ${name}: its name holds no YYYYMMDD-HHMMSS date"; continue ;;
+        esac
+        # date carries 20260230 over into March, so only the round trip rejects it.
+        epoch=$(date -j -u -f '%Y%m%d-%H%M%S' "$stamp" +%s 2>/dev/null) || epoch=""
+        if [ -z "$epoch" ] || [ "$(date -j -u -r "$epoch" '+%Y%m%d-%H%M%S' 2>/dev/null)" != "$stamp" ]; then
+            echo "skipping ${name}: ${stamp} is not a real date"
+            continue
+        fi
+        if [ "$epoch" -gt $((now + 600)) ]; then
+            echo "skipping ${name}: its name is dated more than 600s ahead of now"
+            continue
+        fi
+        if [ ! -f "${dump}.hmac" ] || [ -L "${dump}.hmac" ] || [ "$(head -c 3 "${dump}.hmac" 2>/dev/null)" != "v2 " ]; then
+            not_v2=$((not_v2 + 1))
+            continue
+        fi
+        if [ -z "$newest" ] || [ "$epoch" -gt "$newest_epoch" ]; then
+            newest=$dump
+            newest_epoch=$epoch
+        fi
+    done
+}
+
+pick_newest_dump
+if [ -z "$newest" ]; then
+    [ "$not_v2" -eq 0 ] \
+        || fail "${not_v2} dump(s) in ${BK} have a legacy sidecar or none - auto-restore uses only v2 dumps; restore one by hand with restore.sh"
+    fail "no dumps in ${BK} - cannot auto-restore, restore manually"
+fi
+[ "$not_v2" -eq 0 ] || echo "passed over ${not_v2} dump(s) with a legacy sidecar or none"
+age_h=$(( ( $(date +%s) - newest_epoch ) / 3600 ))
 [ "$age_h" -le "$MAX_DUMP_AGE_HOURS" ] \
     || fail "newest dump is ${age_h}h old (cap ${MAX_DUMP_AGE_HOURS}h) - too stale to restore unattended; restore manually"
 # A product that names a work folder wants the dump's plaintext there and nowhere

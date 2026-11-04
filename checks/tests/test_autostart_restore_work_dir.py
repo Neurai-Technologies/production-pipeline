@@ -18,6 +18,7 @@ import shlex
 import shutil
 import subprocess
 import sys
+import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -45,6 +46,7 @@ ACL_LS = (
     f'exec {LS_PATH} "$@"\n'
 )
 REAL_LS = f'exec {LS_PATH} "$@"\n'
+DATE_PATH = shlex.quote(str(shutil.which("date")))
 macos_only = pytest.mark.skipif(sys.platform != "darwin", reason="chmod +a and ls -e are macOS-only")
 
 
@@ -117,15 +119,25 @@ def build_world(
     )
     fake(bin_dir, "colima", f'[ "$1" = ssh ] && echo {shlex.quote(values["DATA_DISK_DEVICE"])}\nexit 0\n')
     fake(bin_dir, "osascript", f'printf "%s\\n" "$*" >>{shlex.quote(str(tmp_path / "alerts.log"))}\n')
-    # The script reads a dump's age with BSD stat; CI runs on Linux. Age zero.
-    fake(bin_dir, "stat", "date +%s\n")
+    # The script reads a dump's date with BSD date; CI runs on Linux. These tests
+    # are not about dates: the two -j calls answer for the one dump, made just now.
+    now = int(time.time())
+    stamp = time.strftime("%Y%m%d-%H%M%S", time.gmtime(now))
+    fake(
+        bin_dir,
+        "date",
+        f'[ "$1" = -j ] || exec {DATE_PATH} "$@"\nif [ "$3" = -f ]; then echo {now}; else echo {stamp}; fi\n',
+    )
     fake(bin_dir, "ls", NO_ACL_LS)
     for name, body in (extra_fakes or {}).items():
         fake(bin_dir, name, body)
 
     backups = Path(values["BACKUP_DIR"])
     backups.mkdir(parents=True)
-    (backups / f"{values['BACKUP_PREFIX']}-20260101-000000.sql.gz.enc").write_text("ciphertext")
+    dump = backups / f"{values['BACKUP_PREFIX']}-{stamp}.sql.gz.enc"
+    dump.write_text("ciphertext")
+    # The stub below verifies nothing; the selection only reads the v2 marker.
+    Path(f"{dump}.hmac").write_text("v2 " + "0" * 64 + "\n")
     # The passphrase line reads the compose folder's secrets file; the stub
     # below needs no passphrase, so the file is left absent.
     checkout = Path(values["REPO_DIR"])
