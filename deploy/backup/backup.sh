@@ -173,7 +173,7 @@ cycle() {
     # credential, so compromising it yields SELECT, not write/DDL.
     if pg_dump -h "$DB_SERVICE" -U "$DB_BACKUP_USER" "$DB_NAME" \
         | gzip \
-        | backup_encrypt "$tmp" \
+        | backup_encrypt "$tmp" "$(basename "$out")" \
         && [ "$(wc -c <"$tmp")" -gt 1024 ] \
         && mv "$tmp.hmac" "${out}.hmac"; then
         mv "$tmp" "$out"

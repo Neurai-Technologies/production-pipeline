@@ -1,6 +1,15 @@
 #!/bin/sh
 # Source-only backup encryption API. No configuration is read until a function
 # is called. Keep format-specific validation and legacy opt-ins in the caller.
+#
+# The OUTFILE.hmac sidecar has one of two forms, under the same derived key:
+#   v2 <64 hex>  HMAC over the line backup-crypto-v2, a line with the file's
+#                base name, then the ciphertext: it authenticates the bytes and
+#                the name (and the date the name carries).
+#   <64 hex>     Legacy. HMAC over the ciphertext alone: it authenticates the
+#                bytes only, so a renamed dump still verifies.
+# Ciphertext always starts with Salted__, so a v2 input never equals a legacy
+# input, and a v2 sidecar with its marker removed fails the legacy check.
 
 _backup_crypto_require() {
     set -eu
@@ -13,6 +22,17 @@ _backup_crypto_require() {
     }
 }
 
+# One line of a v2 MAC input. A newline could move bytes between the name and
+# the ciphertext and keep the same input, so one is refused on both sides.
+_backup_crypto_check_name() {
+    case "$1" in
+        ''|*/*|*'
+'*) echo 'backup crypto: a bound name must be a file name, with no / or newline' >&2; return 1 ;;
+    esac
+}
+
+# _backup_crypto_hmac FILE: the legacy MAC. _backup_crypto_hmac FILE NAME: the
+# v2 MAC, which binds FILE's bytes to NAME.
 _backup_crypto_hmac() {
     # Existing derivation and OpenSSL PBKDF2 defaults; do not change the salt,
     # digest or iteration count without a separately designed format migration.
@@ -22,7 +42,14 @@ _backup_crypto_hmac() {
     [ "${#key}" -eq 64 ] || { echo 'backup crypto: could not derive the MAC key' >&2; return 1; }
     # The derived MAC key is an internal openssl argument, as in the old code.
     # The passphrase itself is always read from the environment, never argv.
-    digest=$(openssl dgst -sha256 -mac HMAC -macopt "hexkey:$key" -r "$1") || return 1
+    if [ "$#" -eq 2 ]; then
+        # A pipe's status is openssl's alone, and POSIX sh has no pipefail: the
+        # marker, beside FILE in the caller's private folder, proves cat finished.
+        digest=$({ printf 'backup-crypto-v2\n%s\n' "$2"; cat "$1" && : >"$1.read"; } | openssl dgst -sha256 -mac HMAC -macopt "hexkey:$key" -r) || return 1
+        [ -e "$1.read" ] || { echo 'backup crypto: could not read the ciphertext' >&2; return 1; }
+    else
+        digest=$(openssl dgst -sha256 -mac HMAC -macopt "hexkey:$key" -r "$1") || return 1
+    fi
     digest=${digest%% *}
     case "$digest" in ''|*[!0-9a-f]*) return 1 ;; esac
     [ "${#digest}" -eq 64 ] || return 1
@@ -31,7 +58,8 @@ _backup_crypto_hmac() {
 
 _backup_crypto_authenticate() {
     # Verify a private snapshot: a later change to the source must not become
-    # the bytes decrypted after an earlier successful integrity check.
+    # the bytes decrypted after an earlier successful integrity check. A v2 MAC
+    # is checked under the base name the caller gave, never the snapshot's name.
     cipher=$1
     case "$cipher" in /*) ;; *) cipher="$PWD/$cipher" ;; esac
     for file in "$cipher" "$cipher.hmac"; do
@@ -43,24 +71,45 @@ _backup_crypto_authenticate() {
     cp -P "$cipher" "$2/ciphertext" || return 1
     cp -P "$cipher.hmac" "$2/sidecar" || return 1
     [ -f "$2/ciphertext" ] && [ ! -L "$2/ciphertext" ] && [ -f "$2/sidecar" ] && [ ! -L "$2/sidecar" ] || return 1
-    expected=$(tr -d '[:space:]' <"$2/sidecar") || return 1
+    expected=$(cat "$2/sidecar") || return 1
+    case "$expected" in
+        'v2 '*) sidecar_form=v2; expected=${expected#v2 } ;;
+        # Old dumps keep the tolerance they were written under: whitespace goes.
+        *) sidecar_form=legacy; expected=$(tr -d '[:space:]' <"$2/sidecar") || return 1 ;;
+    esac
     case "$expected" in ''|*[!0-9a-f]*) echo 'backup crypto: malformed .hmac sidecar' >&2; return 1 ;; esac
     [ "${#expected}" -eq 64 ] || { echo 'backup crypto: malformed .hmac sidecar' >&2; return 1; }
-    computed=$(_backup_crypto_hmac "$2/ciphertext") || return 1
-    [ "$computed" = "$expected" ] || {
-        echo 'backup crypto: ciphertext does not match its .hmac sidecar (modified, truncated, wrong passphrase or salt)' >&2
-        return 1
-    }
+    # v2 is exact. The size catches what the command substitution above dropped:
+    # exactly one final newline is part of the form.
+    [ "$sidecar_form" = legacy ] || [ "$(wc -c <"$2/sidecar" | tr -d ' ')" -eq 68 ] || { echo 'backup crypto: malformed .hmac sidecar' >&2; return 1; }
+    if [ "$sidecar_form" = v2 ]; then
+        bound_name=${cipher##*/}
+        _backup_crypto_check_name "$bound_name" || return 1
+        computed=$(_backup_crypto_hmac "$2/ciphertext" "$bound_name") || return 1
+        [ "$computed" = "$expected" ] || {
+            echo 'backup crypto: ciphertext or file name does not match its .hmac sidecar (modified, truncated, renamed, wrong passphrase or salt)' >&2
+            return 1
+        }
+    else
+        computed=$(_backup_crypto_hmac "$2/ciphertext") || return 1
+        [ "$computed" = "$expected" ] || {
+            echo 'backup crypto: ciphertext does not match its .hmac sidecar (modified, truncated, wrong passphrase or salt)' >&2
+            return 1
+        }
+    fi
 }
 
 # Reads arbitrary stdin, writes OUTFILE and OUTFILE.hmac once. The ciphertext's
 # final name is the completion marker; a caller must also check its producer's
 # exit status before promoting a transient OUTFILE to an application artifact.
+# With FINAL_NAME the sidecar is v2, bound to that name, so a transient OUTFILE
+# verifies only once it has its final name. Without it the sidecar is legacy.
 backup_encrypt() (
     set +x
     set -eu
     umask 077
-    [ "$#" -eq 1 ] && [ -n "$1" ] || { echo 'usage: backup_encrypt OUTFILE' >&2; exit 2; }
+    { [ "$#" -eq 1 ] || [ "$#" -eq 2 ]; } && [ -n "$1" ] || { echo 'usage: backup_encrypt OUTFILE [FINAL_NAME]' >&2; exit 2; }
+    [ "$#" -eq 1 ] || _backup_crypto_check_name "$2" || exit 2
     _backup_crypto_require || exit 1
     out=$1
     [ ! -e "$out" ] && [ ! -L "$out" ] && [ ! -e "$out.hmac" ] && [ ! -L "$out.hmac" ] || {
@@ -75,7 +124,12 @@ backup_encrypt() (
     fi; rm -rf "$work"' EXIT
     trap 'exit 1' HUP INT TERM
     openssl enc -aes-256-cbc -pbkdf2 -salt -pass env:BACKUP_PASSPHRASE -out "$work/ciphertext" || exit 1
-    _backup_crypto_hmac "$work/ciphertext" >"$work/sidecar" || exit 1
+    if [ "$#" -eq 2 ]; then
+        mac=$(_backup_crypto_hmac "$work/ciphertext" "$2") || exit 1
+        printf 'v2 %s\n' "$mac" >"$work/sidecar" || exit 1
+    else
+        _backup_crypto_hmac "$work/ciphertext" >"$work/sidecar" || exit 1
+    fi
     # Same-filesystem hard links do not overwrite a competing immutable output.
     ln "$work/sidecar" "$out.hmac" || exit 1
     ln "$work/ciphertext" "$out" || exit 1
@@ -97,16 +151,24 @@ backup_verify() (
 
 # Authenticates and completely decrypts a private snapshot before emitting any
 # plaintext to stdout. The caller owns decompression and application checks.
+# --warn-legacy: say on stderr when the snapshot's sidecar has the legacy form.
+# Read here because the sidecar on disk may have changed since the snapshot.
 backup_decrypt() (
     set +x
     set -eu
     umask 077
-    [ "$#" -eq 1 ] || { echo 'usage: backup_decrypt FILE' >&2; exit 2; }
+    case "$#:${2:-}" in
+        1:|2:--warn-legacy) ;;
+        *) echo 'usage: backup_decrypt FILE [--warn-legacy]' >&2; exit 2 ;;
+    esac
     _backup_crypto_require || exit 1
     work=$(mktemp -d "${TMPDIR:-/tmp}/backup-crypto.XXXXXX") || exit 1
     trap 'rm -rf "$work"' EXIT
     trap 'exit 1' HUP INT TERM
     _backup_crypto_authenticate "$1" "$work" || exit 1
+    if [ "$#" -eq 2 ] && [ "$sidecar_form" = legacy ]; then
+        echo 'WARNING: old format .hmac sidecar: the bytes are authenticated, but the file name and its date are not' >&2
+    fi
     openssl enc -d -aes-256-cbc -pbkdf2 -pass env:BACKUP_PASSPHRASE -in "$work/ciphertext" -out "$work/plaintext" || exit 1
     cat "$work/plaintext"
 )

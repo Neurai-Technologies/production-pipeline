@@ -243,9 +243,17 @@ SQL
     "${C[@]}" run --rm -T -e BACKUP_ROOT=/host-backups backup once
     cipher=$(find "$PIPELINE_DRILL_HOST_BACKUPS" -name 'fakedump-*.sql.gz.enc' -type f)
     [ -n "$cipher" ] && [ -f "$cipher.hmac" ]
-    cp "$cipher" "$WORK/damaged.enc"
-    cp "$cipher.hmac" "$WORK/damaged.enc.hmac"
-    python3 - "$WORK/damaged.enc" <<'PY'
+    grep -Eqx 'v2 [0-9a-f]{64}' "$cipher.hmac"
+    # Damaged keeps the dump's name, so only its bytes can be why it is refused;
+    # renamed keeps the bytes, so only its name can be.
+    local dump_name="${cipher##*/}" refused
+    local damaged="$WORK/damaged/$dump_name" renamed="$WORK/renamed/fakedump-20000101-000000.sql.gz.enc"
+    mkdir "$WORK/damaged" "$WORK/renamed"
+    cp "$cipher" "$damaged"
+    cp "$cipher.hmac" "$damaged.hmac"
+    cp "$cipher" "$renamed"
+    cp "$cipher.hmac" "$renamed.hmac"
+    python3 - "$damaged" <<'PY'
 import sys
 from pathlib import Path
 p = Path(sys.argv[1])
@@ -262,23 +270,51 @@ DB_NAME=fake_test
 BACKUP_HMAC_SALT=fakesalt
 ERASURE_CHECK_SQL=
 SETTINGS
-    if (cd "$WORK" && COMPOSE_FILE="$WORK/compose.yml" COMPOSE_ENV_FILES=/dev/null \
-        RESTORE_PROJECT="$PROJECT" RESTORE_SERVICE=restored RESTORE_UNVERIFIED=0 \
-        PRODUCT_SETTINGS="$WORK/product.settings" BACKUP_PASSPHRASE="$PIPELINE_DRILL_PASSPHRASE" \
-        bash "$REPO/deploy/restore.sh" "$WORK/damaged.enc"); then
-        echo 'FAIL: a modified dump was accepted'; exit 1
-    fi
-    [ "$("${C[@]}" exec -T restored psql -U fakeowner -d fake_test -Atc \
-        "SELECT count(*) FROM pg_tables WHERE schemaname='public'")" = 0 ]
-    (cd "$WORK" && COMPOSE_FILE="$WORK/compose.yml" COMPOSE_ENV_FILES=/dev/null \
-        RESTORE_PROJECT="$PROJECT" RESTORE_SERVICE=restored RESTORE_UNVERIFIED=0 \
-        PRODUCT_SETTINGS="$WORK/product.settings" BACKUP_PASSPHRASE="$PIPELINE_DRILL_PASSPHRASE" \
-        bash "$REPO/deploy/restore.sh" "$cipher")
+    local stderr="$WORK/restore.stderr"
+    for refused in "$damaged" "$renamed"; do
+        if (cd "$WORK" && COMPOSE_FILE="$WORK/compose.yml" COMPOSE_ENV_FILES=/dev/null \
+            RESTORE_PROJECT="$PROJECT" RESTORE_SERVICE=restored RESTORE_UNVERIFIED=0 \
+            PRODUCT_SETTINGS="$WORK/product.settings" BACKUP_PASSPHRASE="$PIPELINE_DRILL_PASSPHRASE" \
+            bash "$REPO/deploy/restore.sh" "$refused") 2>"$stderr"; then
+            cat "$stderr"
+            printf 'FAIL: a modified or renamed dump was accepted: %s\n' "${refused##*/}"; exit 1
+        fi
+        cat "$stderr"
+        grep -Fq 'does not match its .hmac sidecar' "$stderr"
+        [ "$("${C[@]}" exec -T restored psql -U fakeowner -d fake_test -Atc \
+            "SELECT count(*) FROM pg_tables WHERE schemaname='public'")" = 0 ]
+    done
+    # The same dump with a sidecar in the old format, as a one-argument
+    # backup_encrypt still writes it.
+    local legacy="$WORK/legacy/$dump_name" form warnings
+    mkdir "$WORK/legacy"
+    BACKUP_PASSPHRASE="$PIPELINE_DRILL_PASSPHRASE" BACKUP_HMAC_SALT=fakesalt \
+        bash -c 'set -euo pipefail; . "$1"; backup_decrypt "$2" | backup_encrypt "$3"' fixture \
+        "$REPO/deploy/backup/crypto.sh" "$cipher" "$legacy"
+    grep -Eqx '[0-9a-f]{64}' "$legacy.hmac"
     local query="SELECT count(*), md5(string_agg(id::text||value,'|' ORDER BY id)) FROM alpha; SELECT count(*), md5(string_agg(id::text||value,'|' ORDER BY id)) FROM beta; SELECT last_value FROM checkpoint;"
     source_counts=$("${C[@]}" exec -T source psql -U fakeowner -d fake_test -Atc "$query")
-    restored_counts=$("${C[@]}" exec -T restored psql -U fakeowner -d fake_test -Atc "$query")
-    [ "$source_counts" = "$restored_counts" ]
-    printf 'PostgreSQL %s restored counts/checksums: %s\n' "$major" "$restored_counts"
+    for form in v2 legacy; do
+        warnings=0
+        if [ "$form" = legacy ]; then
+            warnings=1
+            cipher="$legacy"
+            "${C[@]}" exec -T restored psql -U fakeowner -d fake_test -v ON_ERROR_STOP=1 \
+                -c 'DROP TABLE alpha, beta; DROP SEQUENCE checkpoint;'
+        fi
+        if ! (cd "$WORK" && COMPOSE_FILE="$WORK/compose.yml" COMPOSE_ENV_FILES=/dev/null \
+            RESTORE_PROJECT="$PROJECT" RESTORE_SERVICE=restored RESTORE_UNVERIFIED=0 \
+            PRODUCT_SETTINGS="$WORK/product.settings" BACKUP_PASSPHRASE="$PIPELINE_DRILL_PASSPHRASE" \
+            bash "$REPO/deploy/restore.sh" "$cipher") 2>"$stderr"; then
+            cat "$stderr"
+            printf 'FAIL: the %s dump did not restore\n' "$form"; exit 1
+        fi
+        cat "$stderr"
+        [ "$(grep -Fc 'old format' "$stderr" || :)" = "$warnings" ]
+        restored_counts=$("${C[@]}" exec -T restored psql -U fakeowner -d fake_test -Atc "$query")
+        [ "$source_counts" = "$restored_counts" ]
+        printf 'PostgreSQL %s restored counts/checksums (%s sidecar): %s\n' "$major" "$form" "$restored_counts"
+    done
     "${C[@]}" run --rm -T logarchive once
     "${C[@]}" run --rm -T --entrypoint /bin/sh logarchive \
         -c 'tar -C /log-archive -cf - .' | tar -xf - -C "$WORK/archive"
@@ -293,7 +329,7 @@ SETTINGS
     docker image rm "$IMAGE"
     rm -rf "$WORK"
     WORK="" PROJECT="" IMAGE=""
-    printf 'Verified: PostgreSQL %s backup/restore, tamper refusal and log archive\n' "$major"
+    printf 'Verified: PostgreSQL %s backup/restore with v2 and legacy sidecars, tamper and rename refusal and log archive\n' "$major"
 }
 run_major 16 'postgres:16.15-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea'
 run_major 17 'postgres:17.11-alpine@sha256:266d3c257594e195b309ae9d1805e54c788f1d7b375f56bf6c367aac6c917e7b'

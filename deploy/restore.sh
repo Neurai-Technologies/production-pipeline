@@ -18,11 +18,15 @@
 # the image pin. A backup that has never been restored is a hope, not a backup.
 #
 # Nothing reaches the database until the file has been proven whole: the
-# .hmac sidecar backup.sh writes must match (a modified, truncated or
+# .hmac sidecar backup.sh writes must match (a modified, truncated, renamed or
 # wrong-passphrase file stops here), then the dump is decrypted into a
 # private temp file and checked for pg_dump's header and trailer. Only then
 # does psql run, with ON_ERROR_STOP + --single-transaction so a mid-stream SQL
 # error still applies nothing.
+#
+# The sidecar binds the dump to the file name given here, and so to the date
+# in that name. An old-format sidecar authenticates the bytes only: such a dump
+# still restores, with one warning line, and a rename of it goes unnoticed.
 #
 # Two temp paths hold plaintext during a restore, both under ${TMPDIR:-/tmp}:
 # <PRODUCT>-restore.* (the whole dump) and backup-crypto.*/plaintext (gzipped,
@@ -84,7 +88,7 @@ umask 077
 plain=$(mktemp "${TMPDIR:-/tmp}/${PRODUCT}-restore.XXXXXX")
 trap 'rm -f "$plain" || :' EXIT
 if [ "$verified" = 1 ]; then
-    if ! backup_decrypt "$file" | gunzip >"$plain"; then
+    if ! backup_decrypt "$file" --warn-legacy | gunzip >"$plain"; then
         echo "REFUSED: dump authentication or decryption failed" >&2
         exit 1
     fi

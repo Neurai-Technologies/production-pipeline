@@ -11,6 +11,7 @@ product.settings); restore.sh sources the product.settings PRODUCT_SETTINGS name
 from __future__ import annotations
 
 import hashlib
+import hmac
 import os
 import shlex
 import shutil
@@ -49,12 +50,19 @@ FAKE_DUMP = (
 
 def hmac_via(script: Path, path: Path, salt: str) -> str:
     assert "crypto.sh" in script.read_text(encoding="utf-8")
-    code = f'. {shlex.quote(str(CRYPTO))}\n_backup_crypto_hmac {shlex.quote(str(path))}'
+    code = f". {shlex.quote(str(CRYPTO))}\n_backup_crypto_hmac {shlex.quote(str(path))}"
     return subprocess.check_output(
         ["bash", "-c", code],
         text=True,
         env={**os.environ, "BACKUP_PASSPHRASE": PASSPHRASE, "BACKUP_HMAC_SALT": salt},
     ).strip()
+
+
+def v2_sidecar(dump: Path, salt: str) -> str:
+    """A dump's v2 sidecar, computed independently of crypto.sh: label line, name line, ciphertext."""
+    key = hashlib.pbkdf2_hmac("sha256", PASSPHRASE.encode(), salt.encode(), 10000, dklen=48)[:32]
+    message = b"backup-crypto-v2\n" + dump.name.encode() + b"\n" + dump.read_bytes()
+    return f"v2 {hmac.new(key, message, 'sha256').hexdigest()}\n"
 
 
 @pytest.fixture
@@ -309,7 +317,7 @@ def test_once_runs_one_cycle_and_exits_0(tmp_path: Path, env: ProductSettings) -
     found = dumps(out, env)
     assert len(found) == 1
     sidecar = Path(f"{found[0]}.hmac")
-    assert sidecar.read_text().strip() == hmac_via(BACKUP, found[0], env.values["BACKUP_HMAC_SALT"])
+    assert sidecar.read_text() == v2_sidecar(found[0], env.values["BACKUP_HMAC_SALT"])
     assert beat.exists()
     assert not (tmp_path / "slept").exists(), "once must exit, not wait for the next cycle"
 
@@ -610,7 +618,7 @@ def test_backup_writes_a_dump_with_a_matching_sidecar(backup_dir: Path, env: Pro
     found = dumps(backup_dir, env)
     assert len(found) == 1
     sidecar = Path(f"{found[0]}.hmac")
-    assert sidecar.read_text().strip() == hmac_via(BACKUP, found[0], env.values["BACKUP_HMAC_SALT"])
+    assert sidecar.read_text() == v2_sidecar(found[0], env.values["BACKUP_HMAC_SALT"])
     assert not list(backup_dir.glob("*.part*"))
 
 
@@ -624,6 +632,19 @@ def test_restore_feeds_psql_only_a_verified_whole_dump(
     assert "--single-transaction" in argv
     assert f"-p {env.values['COMPOSE_PROJECT']} exec -T {env.values['DB_SERVICE']} psql" in argv, argv
     assert not plaintext_left(tmp_path, env), "plaintext temp file must be removed"
+
+
+def test_restore_warns_once_on_a_legacy_dump_and_still_restores_it(
+    tmp_path: Path, backup_dir: Path, env: ProductSettings
+) -> None:
+    dump = dumps(backup_dir, env)[0]
+    legacy = hmac_via(BACKUP, dump, env.values["BACKUP_HMAC_SALT"])
+    Path(f"{dump}.hmac").write_text(f"{legacy}\n")
+    result, received = restore(tmp_path, env, dump)
+    assert result.returncode == 0, result.stderr
+    assert received.read_text() == FAKE_DUMP
+    warnings = [line for line in result.stderr.splitlines() if "old format" in line]
+    assert len(warnings) == 1, result.stderr
 
 
 def test_restore_refuses_a_dump_sealed_under_another_salt(tmp_path: Path, product_settings: Callable) -> None:
@@ -691,7 +712,7 @@ def test_restore_refuses_a_truncated_dump(tmp_path: Path, env: ProductSettings) 
     truncated = FAKE_DUMP.split("-- PostgreSQL database dump complete")[0]
     dump = tmp_path / f"{env.values['BACKUP_PREFIX']}-truncated.sql.gz.enc"
     code = (
-        f'. {shlex.quote(str(CRYPTO))}\n'
+        f". {shlex.quote(str(CRYPTO))}\n"
         f"printf '%s' \"$FAKE_DUMP\" | gzip | openssl enc -aes-256-cbc -pbkdf2 -salt -pass env:BACKUP_PASSPHRASE -out {dump}\n"
         f"_backup_crypto_hmac {dump} >{dump}.hmac"
     )
@@ -1017,17 +1038,38 @@ def test_disposable_drill_packages_the_helper_and_both_major_images() -> None:
     assert drill.count('RESTORE_PROJECT="$PROJECT" RESTORE_SERVICE=restored RESTORE_UNVERIFIED=0') == 2
     assert '"${PROJECT}_default" "${PROJECT}_backups"' in drill
     assert "--remove-orphans" not in drill
-    parsed = subprocess.run(["bash", "-n", str(LIBRARY_ROOT / "checks" / "backup-restore-drill.sh")], capture_output=True, check=False)
+    parsed = subprocess.run(
+        ["bash", "-n", str(LIBRARY_ROOT / "checks" / "backup-restore-drill.sh")],
+        capture_output=True,
+        check=False,
+    )
     assert parsed.returncode == 0
 
 
 def test_disposable_drill_drops_inherited_compose_selectors_before_docker(tmp_path: Path) -> None:
     seen = tmp_path / "seen"
-    fake(tmp_path / "bin", "docker", f'printf "%s|%s|%s|%s\\n" "${{COMPOSE_FILE-absent}}" "${{COMPOSE_ENV_FILES-absent}}" "${{COMPOSE_PROFILES-absent}}" "${{COMPOSE_DISABLE_ENV_FILE-absent}}" >>"{seen}"\n[ "$1" != info ]\n')
+    fake(
+        tmp_path / "bin",
+        "docker",
+        f'printf "%s|%s|%s|%s\\n" "${{COMPOSE_FILE-absent}}" "${{COMPOSE_ENV_FILES-absent}}" "${{COMPOSE_PROFILES-absent}}" "${{COMPOSE_DISABLE_ENV_FILE-absent}}" >>"{seen}"\n[ "$1" != info ]\n',
+    )
     result = subprocess.run(
-        ["bash", str(LIBRARY_ROOT / "checks" / "backup-restore-drill.sh"), str(tmp_path / "report"), str(tmp_path)],
-        env={**os.environ, "PATH": f"{tmp_path / 'bin'}:{os.environ['PATH']}", "DOCKER_HOST": "unix:///fixture/docker.sock", "COMPOSE_FILE": "refuse-production.yml", "COMPOSE_ENV_FILES": "refuse-production-config", "COMPOSE_PROFILES": "refuse-production-profile"},
-        capture_output=True, check=False,
+        [
+            "bash",
+            str(LIBRARY_ROOT / "checks" / "backup-restore-drill.sh"),
+            str(tmp_path / "report"),
+            str(tmp_path),
+        ],
+        env={
+            **os.environ,
+            "PATH": f"{tmp_path / 'bin'}:{os.environ['PATH']}",
+            "DOCKER_HOST": "unix:///fixture/docker.sock",
+            "COMPOSE_FILE": "refuse-production.yml",
+            "COMPOSE_ENV_FILES": "refuse-production-config",
+            "COMPOSE_PROFILES": "refuse-production-profile",
+        },
+        capture_output=True,
+        check=False,
     )
     assert result.returncode != 0
     assert seen.read_text().splitlines() == ["absent|absent|absent|1"] * 2
