@@ -171,8 +171,7 @@ paragraphs; keep history.
     counts and an md5 over each table's ordered rows matched exactly
     between the source and the restored database.
   - Loop mode: the first cycle wrote `<prefix>-*.sql.gz.enc` (about
-    159 KB), its 65-byte `.hmac` (the legacy form of that date; a v2 sidecar
-    is 68 bytes) and the heartbeat; `flock` and `openssl`
+    159 KB), its 65-byte `.hmac` and the heartbeat; `flock` and `openssl`
     present, `/bin/sh` is busybox ash.
   - Lock: `backup.lock` was created in the `backup-lock` volume, and no
     lock file appeared in the backup directory.
@@ -220,7 +219,7 @@ paragraphs; keep history.
 - 2026-11-04, the code of commit 89ff1aae1ac30a48d0dcbef9a8487031b65f7305, on
   the same disposable Docker VM (server 29.2.1) and with the same command.
   Result: PASS on PostgreSQL 16 and 17, with the generic log archive.
-  - File and size: `fakedump-*.sql.gz.enc` with its v2 `.hmac`, 83072 bytes
+  - File and size: `fakedump-*.sql.gz.enc` with its 68-byte v2 `.hmac`, 83072 bytes
     (one 83056) across both majors, written to a volume and to a bind-mounted
     host folder.
   - Integrity: a copy with one byte changed and a renamed copy were both
