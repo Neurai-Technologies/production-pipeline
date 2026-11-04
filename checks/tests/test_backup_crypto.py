@@ -263,6 +263,33 @@ def test_v2_and_legacy_sidecars_never_verify_for_one_another(tmp_path: Path) -> 
     assert invoke("backup_verify", path, TMPDIR=str(tmp_path)).returncode == 0
 
 
+def test_a_v2_input_written_as_a_file_cannot_pass_as_legacy(tmp_path: Path) -> None:
+    """The v2 MAC input as file bytes, the bare v2 MAC as a legacy sidecar: the MAC holds, the header cannot."""
+    honest = tmp_path / "honest.enc"
+    v2_pair(honest)
+    mac = Path(f"{honest}.hmac").read_text().removeprefix("v2 ").strip()
+    forged = tmp_path / "forged.enc"
+    forged.write_bytes(b"backup-crypto-v2\n" + honest.name.encode() + b"\n" + honest.read_bytes())
+    Path(f"{forged}.hmac").write_text(f"{mac}\n")
+    assert hmac.new(mac_key(), forged.read_bytes(), "sha256").hexdigest() == mac, (
+        "the fixture must verify as legacy"
+    )
+    verified = invoke("backup_verify", forged, TMPDIR=str(tmp_path))
+    assert verified.returncode != 0 and b"does not start with Salted__" in verified.stderr, verified.stderr
+    decrypted = invoke("backup_decrypt", forged, TMPDIR=str(tmp_path))
+    assert decrypted.returncode != 0 and not decrypted.stdout
+    assert b"does not start with Salted__" in decrypted.stderr, decrypted.stderr
+
+
+@pytest.mark.parametrize("head", [b"", b"Salted_", b"Salted_\n", b"salted__", b"Salt\x00ed__"])
+def test_a_snapshot_without_the_exact_header_is_refused(tmp_path: Path, head: bytes) -> None:
+    path = tmp_path / "archive.enc"
+    path.write_bytes(head)
+    Path(f"{path}.hmac").write_text(hmac.new(mac_key(), head, "sha256").hexdigest() + "\n")
+    result = invoke("backup_verify", path, TMPDIR=str(tmp_path))
+    assert result.returncode != 0 and b"does not start with Salted__" in result.stderr, result.stderr
+
+
 def test_only_a_passing_legacy_sidecar_warns_and_only_when_asked(tmp_path: Path) -> None:
     legacy = tmp_path / "legacy.enc"
     legacy_pair(legacy)

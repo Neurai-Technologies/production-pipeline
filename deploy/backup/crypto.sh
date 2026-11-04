@@ -8,8 +8,9 @@
 #                the name (and the date the name carries).
 #   <64 hex>     Legacy. HMAC over the ciphertext alone: it authenticates the
 #                bytes only, so a renamed dump still verifies.
-# Ciphertext always starts with Salted__, so a v2 input never equals a legacy
-# input, and a v2 sidecar with its marker removed fails the legacy check.
+# Authentication refuses a file that does not start with Salted__, so a v2 input
+# never equals a legacy input, and a v2 sidecar with its marker removed cannot
+# pass the legacy check, even over a file holding that v2 input.
 
 _backup_crypto_require() {
     set -eu
@@ -97,6 +98,11 @@ _backup_crypto_authenticate() {
             return 1
         }
     fi
+    # openssl enc -salt starts every output with this; a v2 MAC input never does.
+    [ "$(head -c 8 "$2/ciphertext")" = Salted__ ] || {
+        echo 'backup crypto: ciphertext does not start with Salted__, so it is not an openssl enc file' >&2
+        return 1
+    }
 }
 
 # Reads arbitrary stdin, writes OUTFILE and OUTFILE.hmac once. The ciphertext's
