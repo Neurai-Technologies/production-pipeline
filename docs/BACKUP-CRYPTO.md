@@ -87,9 +87,10 @@ even over a file holding that v2 input.
 The passphrase is passed to OpenSSL with `-pass env:BACKUP_PASSPHRASE`.
 As in the old implementation, the derived MAC key does appear in an internal
 OpenSSL `-macopt` argument. Never enable shell tracing around secret handling;
-the public functions turn tracing off inside their subshells. A same-user
-process that catches the key in argv while a backup or restore runs could forge
-a sidecar, including one for a renamed dump. The key depends only on the
+the public functions turn tracing off inside their subshells. A process able to
+read the command line, which can include other users depending on the platform,
+could catch the key in argv while a backup or restore runs and forge a sidecar,
+including one for a renamed dump. The key depends only on the
 passphrase and the salt, so that holds for every dump under them, not only the
 one being handled.
 
@@ -115,9 +116,17 @@ dumps, and the older one left is then the newest, bounded only by the age cap.
 A dump skipped or passed over at the choice step (its name dated more than 600
 seconds ahead or holding no real date, its marker changed or its sidecar
 removed) has the same effect: the next older v2 dump is chosen, and only the log
-records it. That gives no more than deleting the dump. A name or marker forged
-on the dump actually chosen makes `restore.sh` refuse, with no fall back.
+records it. That gives no more than deleting the dump. Renaming the newest dump
+to an older date, or out of the dump pattern, has the same effect as deleting it
+too: the next older one is chosen, with no log line at all. A name or marker
+forged on the dump actually chosen makes `restore.sh` refuse, with no fall back.
 Pruning and the mirror's retention windows still use file times.
+
+The name binding helps only when the dumps are on a different disk from the
+checkout and `.env`. `BACKUP_DIR` defaults to `<repo>/backups`. On that layout
+someone holding the disk can read the passphrase and forge a sidecar, or edit
+the `restore.sh` that login runs, so v2 adds nothing against them. Set
+`BACKUP_DIR` to another disk for this protection.
 
 ## Packaging
 

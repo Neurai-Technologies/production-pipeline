@@ -11,7 +11,8 @@
 # Not keys (set per run by the scripts or the operator, never here):
 # PRODUCT_SETTINGS (path of this file, for restore.sh), RESTORE_SERVICE and
 # RESTORE_PROJECT (where restore.sh loads a dump; the drill sets its own),
-# RESTORE_UNVERIFIED (restore a dump that has no .hmac sidecar).
+# RESTORE_UNVERIFIED (restore a dump that has no .hmac sidecar), and
+# RESTORE_REQUIRE_V2 (vm-autostart sets it: restore.sh accepts only a v2 sidecar).
 
 # ---- Shared ----------------------------------------------------------------
 
