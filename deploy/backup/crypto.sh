@@ -80,10 +80,14 @@ _backup_crypto_authenticate() {
     esac
     case "$expected" in ''|*[!0-9a-f]*) echo 'backup crypto: malformed .hmac sidecar' >&2; return 1 ;; esac
     [ "${#expected}" -eq 64 ] || { echo 'backup crypto: malformed .hmac sidecar' >&2; return 1; }
-    # v2 is exact. The size catches what the command substitution above dropped:
-    # exactly one final newline is part of the form.
-    [ "$sidecar_form" = legacy ] || [ "$(wc -c <"$2/sidecar" | tr -d ' ')" -eq 68 ] || { echo 'backup crypto: malformed .hmac sidecar' >&2; return 1; }
     if [ "$sidecar_form" = v2 ]; then
+        # v2 is exact. The command substitution above dropped every NUL and the
+        # final newlines, and left 67 bytes: at 68 bytes one was dropped, and a
+        # newline last means that was it. Read through od, as $(tail) drops a NUL.
+        [ "$(wc -c <"$2/sidecar" | tr -d ' ')" -eq 68 ] && [ "$(tail -c 1 "$2/sidecar" | od -An -tx1 | tr -d ' \n')" = 0a ] || {
+            echo 'backup crypto: malformed .hmac sidecar' >&2
+            return 1
+        }
         bound_name=${cipher##*/}
         _backup_crypto_check_name "$bound_name" || return 1
         computed=$(_backup_crypto_hmac "$2/ciphertext" "$bound_name") || return 1

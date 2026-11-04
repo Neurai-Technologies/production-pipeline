@@ -187,6 +187,10 @@ def test_one_argument_encrypt_writes_the_legacy_form_and_round_trips(tmp_path: P
         "v2 {mac}\nv2 {mac}\n",
         "v2 {short}\n",
         "v2 {upper}\n",
+        "v2 {mac}\x00",
+        "\x00v2 {mac}",
+        "v2\x00 {mac}",
+        "v2 {mac}\x00\n",
     ],
 )
 def test_malformed_v2_sidecars_are_refused(tmp_path: Path, shape: str) -> None:
