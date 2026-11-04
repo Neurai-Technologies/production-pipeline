@@ -242,6 +242,26 @@ paragraphs; keep history.
   then recreated only the rebuilt service; the profile's service never
   started; `up -d --no-build` with a built image missing failed rather than
   building. Not verified: a full deploy loop run with this order.
+- 2026-11-04, the code of commit e234f121a2db618fcd4157fac519a845192a4ce7, on
+  the same daemon and with the same command, after the byte-exact v2 sidecar
+  check and the restore flag order changed. Result: PASS on PostgreSQL 16 and
+  17, with the generic log archive.
+  - File and size: `fakedump-*.sql.gz.enc` with its `.hmac`, 83072 bytes (one
+    83056) across both majors, written to a volume and to a bind-mounted host
+    folder.
+  - Integrity: a copy with one byte changed and a renamed copy were both
+    refused; the untouched dump, whose sidecar ends in a newline, restored.
+  - Old format: a dump with a legacy sidecar restored, with the one warning.
+  - Row counts: the checksums matched for the v2 and legacy restores.
+  - Log archive: one fixture log, 224 bytes encrypted, for both majors.
+  - Cleanup: the run's containers, volumes, network and images were removed.
+  - Last byte: inside `postgres:16.15-alpine` and `postgres:17.11-alpine`, the
+    `tail -c 1 | od -An -tx1 | tr -d ' \n'` read gave `00` for input ending in
+    a NUL and `0a` for input ending in a newline. Refusing a whole NUL-ended
+    sidecar is covered by the unit test on the Mac, not run in those images.
+  - Not verified: a real unattended restore by `deploy/vm/vm-autostart.sh`, a
+    product's real data, off-site copies (off in this run), and the dump
+    choice tests on Linux, which first run there when CI runs this branch.
 
 ### Shared crypto verification
 
