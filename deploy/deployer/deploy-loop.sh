@@ -532,13 +532,20 @@ deploy() {
     # stack (and its volumes) no matter where the compose file lives.
     # No profile selected, so the ops profile (this container) is excluded:
     # the deployer never rebuilds or recreates itself mid-run.
-    # Archive the running containers' logs before compose recreates any of
-    # them: docker deletes a removed container's log files with it, and the
-    # nightly archive would miss everything since the previous night. Best
-    # effort on purpose: the deploy must not depend on the archiver (the
-    # release that introduces it has no archiver to call yet). The timeout
-    # runs INSIDE the container, so a stuck archive dies rather than holding
-    # this loop: an unreachable bucket alone can cost ten minutes.
+    # Build first, separately from `up`, so the archive below runs after it:
+    # the running containers keep logging through a build, and an archive
+    # taken before the build would lose those lines. A failed build stops
+    # here with the running stack untouched.
+    FAILED_STEP="compose build"
+    docker compose -p "$COMPOSE_PROJECT" --project-directory "$COMPOSE_DIR_ABS" build || return 1
+    # Archive the running containers' logs after the build and before compose
+    # recreates any of them: docker deletes a removed container's log files
+    # with it, and the nightly archive would miss everything since the
+    # previous night. Best effort on purpose: the deploy must not depend on
+    # the archiver (the release that introduces it has no archiver to call
+    # yet). The timeout runs INSIDE the container, so a stuck archive dies
+    # rather than holding this loop: an unreachable bucket alone can cost ten
+    # minutes.
     docker compose -p "$COMPOSE_PROJECT" --project-directory "$COMPOSE_DIR_ABS" exec -T logarchive \
         timeout 900 sh /scripts/logarchive.sh once \
         || log "pre-deploy log archive failed: lines since the last nightly archive may be lost"
@@ -547,8 +554,10 @@ deploy() {
     # service of an unselected profile, this deployer included, is still
     # defined and never an orphan (compose v5.6.1 counts disabled services
     # as defined: isOrphaned, pkg/compose/containers.go).
+    # --no-build: the images were built above, before the archive, so nothing
+    # here delays the recreate and loses lines logged since the archive.
     FAILED_STEP="compose up"
-    docker compose -p "$COMPOSE_PROJECT" --project-directory "$COMPOSE_DIR_ABS" up -d --build --remove-orphans || return 1
+    docker compose -p "$COMPOSE_PROJECT" --project-directory "$COMPOSE_DIR_ABS" up -d --no-build --remove-orphans || return 1
     # The product's own post-deploy steps (a proxy reload, its own readiness
     # checks), from the clone at this sha, with this loop's environment and
     # the sha as its argument. Fatal like every step here: a failure is
