@@ -563,6 +563,41 @@ def test_a_symlinked_sidecar_is_not_a_v2_sidecar(tmp_path: Path, script: Path, e
 
 
 @macos_only
+@pytest.mark.parametrize(
+    ("malformed", "ahead", "legacy"),
+    [(1, 0, 0), (0, 1, 0), (0, 0, 1), (2, 1, 2)],
+    ids=["malformed", "ahead", "legacy", "all"],
+)
+def test_the_alert_counts_the_dumps_skipped_or_passed_over(
+    tmp_path: Path, script: Path, env: ProductSettings, malformed: int, ahead: int, legacy: int
+) -> None:
+    """The owner sees this at login, without reading the log."""
+    for name in ["20260230-000000", "x20261010-000000"][:malformed]:
+        put_dump(env, name)
+    for extra in range(ahead):
+        put_dump(env, stamp(-900 - extra))
+    for extra in range(legacy):
+        put_dump(env, stamp(600 + extra), sidecar=LEGACY_SIDECAR)
+    dump = put_dump(env, stamp(3600))
+    result, called = login_restore(tmp_path, script, env)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert called.read_text() == str(dump)
+    count = malformed + ahead + legacy
+    assert f"{dump.name} (1h old) - {count} dump(s) skipped or passed over, see the log" in result.stderr
+
+
+@macos_only
+def test_the_alert_says_nothing_of_skips_when_there_are_none(
+    tmp_path: Path, script: Path, env: ProductSettings
+) -> None:
+    put_dump(env, stamp(7200))
+    dump = put_dump(env, stamp(3600))
+    result, _ = login_restore(tmp_path, script, env)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert f"[alert] database volume missing - auto-restoring {dump.name} (1h old)\n" in result.stderr
+
+
+@macos_only
 def test_no_dumps_at_all_keeps_the_no_dumps_message(
     tmp_path: Path, script: Path, env: ProductSettings
 ) -> None:
@@ -586,7 +621,7 @@ def test_the_name_is_read_as_utc_in_any_time_zone(script: Path, env: ProductSett
 def test_a_forged_file_name_logs_one_line_with_its_odd_characters_replaced(
     script: Path, env: ProductSettings
 ) -> None:
-    """The log is the only record of a skip, so a name must not be able to write a line of its own.
+    """The log is the only record of which dump was skipped, so a name must not be able to write a line.
 
     Runs everywhere: this name stops at the pattern, before the BSD date call.
     """

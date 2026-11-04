@@ -115,11 +115,13 @@ What this leaves open: someone with access to the disk can still delete newer
 dumps, and the older one left is then the newest, bounded only by the age cap.
 A dump skipped or passed over at the choice step (its name dated more than 600
 seconds ahead or holding no real date, its marker changed or its sidecar
-removed) has the same effect: the next older v2 dump is chosen, and only the log
-records it. That gives no more than deleting the dump. Renaming the newest dump
-to an older date, or out of the dump pattern, has the same effect as deleting it
-too: the next older one is chosen, with no log line at all. A name or marker
-forged on the dump actually chosen makes `restore.sh` refuse, with no fall back.
+removed) has the same effect: the next older v2 dump is chosen. The log says
+which dump and why, and the login alert for the restore gives how many there
+were, when there are any. That gives no more than deleting the dump. Renaming
+the newest dump to an older date, or out of the dump pattern, has the same
+effect as deleting it too: the next older one is chosen and no trace is left,
+with no log line and no count in the alert. A name or marker forged on the dump
+actually chosen makes `restore.sh` refuse, with no fall back.
 Pruning and the mirror's retention windows still use file times.
 
 The name binding helps only when the dumps are on a different disk from the

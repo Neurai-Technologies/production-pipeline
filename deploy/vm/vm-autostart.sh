@@ -311,24 +311,24 @@ fi
 # either, until restore.sh has verified the HMAC that binds them: a name or
 # marker forged on the dump actually chosen makes it refuse, and the run then
 # fails hard, with no fall back to an older dump. A dump skipped or passed over
-# at the choice below leaves the next older v2 dump, as deleting it would, and
-# only the log records it. Renaming the newest dump to an older date, or out of
-# the pattern, leaves the next older one chosen with no log line at all. What
-# this cannot see is a newer dump deleted from the disk; the older one left is
-# then the newest. The age cap bounds all of these.
+# at the choice below leaves the next older v2 dump, as deleting it would; the
+# log says which and why, and the restore's alert gives the count. Renaming the
+# newest dump to an older date, or out of the pattern, leaves the next older one
+# chosen with no trace: no log line and no count. What this cannot see is a newer
+# dump deleted from the disk; the older one left is then the newest. The age cap
+# bounds all of these.
 #
 # A skip logs safe_name, so a file name cannot forge a log line. It comes from tr
 # under LC_ALL=C: bash 3.2 reads a bracket range by the locale's collation, which
 # lets a letter outside ASCII through in a UTF-8 locale.
 echo "${PGDATA_VOLUME} is absent on a verified datadisk - entering auto-restore"
-# Sets newest to the v2 dump with the greatest name date, newest_epoch to that
-# date, and not_v2 to how many dumps were passed over for their sidecar.
+# Sets newest (v2, greatest name date), newest_epoch, and the counts skipped, not_v2.
 pick_newest_dump() {
     local dump name safe_name stamp epoch now
     now=$(date +%s)
     newest=""
     newest_epoch=0
-    not_v2=0
+    not_v2=0 skipped=0
     for dump in "$BK/${BACKUP_PREFIX}"-*.sql.gz.enc; do
         # A pattern that matched nothing stays as its own text.
         [ -e "$dump" ] || [ -L "$dump" ] || continue
@@ -338,17 +338,17 @@ pick_newest_dump() {
         stamp=${stamp%.sql.gz.enc}
         case "$stamp" in
             [0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]-[0-9][0-9][0-9][0-9][0-9][0-9]) ;;
-            *) echo "skipping ${safe_name}: its name holds no YYYYMMDD-HHMMSS date"; continue ;;
+            *) echo "skipping ${safe_name}: its name holds no YYYYMMDD-HHMMSS date"; skipped=$((skipped + 1)); continue ;;
         esac
         # date carries 20260230 over into March, so only the round trip rejects it.
         epoch=$(date -j -u -f '%Y%m%d-%H%M%S' "$stamp" +%s 2>/dev/null) || epoch=""
         if [ -z "$epoch" ] || [ "$(date -j -u -r "$epoch" '+%Y%m%d-%H%M%S' 2>/dev/null)" != "$stamp" ]; then
             echo "skipping ${safe_name}: its name holds no real date"
-            continue
+            skipped=$((skipped + 1)); continue
         fi
         if [ "$epoch" -gt $((now + 600)) ]; then
             echo "skipping ${safe_name}: its name is dated more than 600s ahead of now"
-            continue
+            skipped=$((skipped + 1)); continue
         fi
         if [ ! -f "${dump}.hmac" ] || [ -L "${dump}.hmac" ] || [ "$(head -c 3 "${dump}.hmac" 2>/dev/null)" != "v2 " ]; then
             not_v2=$((not_v2 + 1))
@@ -380,7 +380,8 @@ if [ -n "$RESTORE_WORK_DIR" ]; then
     problem=$(restore_work_dir_problem)
     [ -z "$problem" ] || fail "${problem} - refusing to restore"
 fi
-alert "database volume missing - auto-restoring $(basename "$newest") (${age_h}h old)"
+skip_note=""; [ $((skipped + not_v2)) -eq 0 ] || skip_note=" - $((skipped + not_v2)) dump(s) skipped or passed over, see the log"
+alert "database volume missing - auto-restoring $(basename "$newest") (${age_h}h old)${skip_note}"
 
 cd "${REPO}/${COMPOSE_DIR}"
 
