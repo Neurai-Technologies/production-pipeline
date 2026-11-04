@@ -378,7 +378,15 @@ SHA differs, stop: the tag does not exist or is not the release you meant.
    deploy on a test setup with your own compose file, covering the image
    prune, the log archive and any `PRE_DEPLOY_HOOK`, `POST_DEPLOY_HOOK` or
    `SITE_RELEASE_HOOK`. Compose may recreate containers on the first `up`
-   after the upgrade.
+   after the upgrade. Upgrading to the release that binds a dump's sidecar to
+   its name and builds images before the log archive: rebuild the deployer
+   image, because `deploy-loop.sh` is inside it and the deployer never rebuilds
+   itself. Unload the autostart agent and run the installer again, so the new
+   `vm-autostart.sh` is what runs. Restart the backup service, because a running
+   loop keeps the old code and goes on writing legacy sidecars. The automatic
+   restore then refuses until the first new backup has run: it uses only v2
+   dumps, and the dumps already on disk are legacy. Those stay restorable by
+   hand with `restore.sh`, with a warning. See docs/BACKUP-CRYPTO.md.
 5. Run the product's checks and the library checks, then release the
    product through its normal path. Nothing changes in a product until it
    does this.

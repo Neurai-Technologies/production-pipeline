@@ -16,17 +16,21 @@ The caller supplies `BACKUP_PASSPHRASE` through its protected environment and
 Neither belongs in an argument or a log. OpenSSL and standard shell file tools
 must be installed. Each function exits non-zero on refusal or failure.
 
-- `backup_encrypt OUTFILE` reads arbitrary bytes from stdin and creates
-  `OUTFILE` and `OUTFILE.hmac`, mode 600. It refuses an existing output or
+- `backup_encrypt OUTFILE [FINAL_NAME]` reads arbitrary bytes from stdin and
+  creates `OUTFILE` and `OUTFILE.hmac`, mode 600. It refuses an existing output or
   sidecar, including symlinks. A private working directory is placed beside
   the output; publication uses same-filesystem links without overwriting.
   The sidecar appears first, ciphertext last as the completion marker.
+  With `FINAL_NAME` the sidecar is v2, bound to that name, so a transient
+  `OUTFILE` verifies only once it has been renamed to it. Without it the
+  sidecar is legacy.
 - `backup_verify FILE` verifies a private snapshot of ciphertext and sidecar
   without decrypting or producing stdout.
-- `backup_decrypt FILE` verifies that snapshot, decrypts it completely into
-  a private temporary file, then writes plaintext to stdout. Failed integrity
+- `backup_decrypt FILE [--warn-legacy]` verifies that snapshot, decrypts it
+  completely into a private temporary file, then writes plaintext to stdout. Failed integrity
   or decryption produces no plaintext. A source change after verification
-  cannot change the snapshot being decrypted.
+  cannot change the snapshot being decrypted. `--warn-legacy` prints one
+  warning line on stderr when the snapshot's sidecar has the legacy form.
 
 The helper sets `umask 077`: new ciphertext and sidecars are owner-only
 (`0600`), and work directories are `0700`. Earlier wrappers running with
@@ -52,18 +56,39 @@ artifact. Do not treat it as one.
 
 ## Compatibility
 
-The format is unchanged: AES-256-CBC with a random OpenSSL salt and its
-PBKDF2 defaults, then HMAC-SHA-256 over ciphertext. The MAC key is derived
-separately from the same passphrase using the existing eight-byte label salt
-and OpenSSL's AES-256-CBC PBKDF2 derivation. The lowercase hexadecimal MAC,
-followed by a newline, is stored in the `.hmac` sidecar. Existing authenticated
-dumps and log archives remain readable, and new output is readable by the
-previous algorithm. This is code reuse, not a cryptographic migration.
+The encryption is unchanged: AES-256-CBC with a random OpenSSL salt and its
+PBKDF2 defaults. So is the MAC key: it is derived separately from the same
+passphrase using the existing eight-byte label salt and OpenSSL's AES-256-CBC
+PBKDF2 derivation. The `.hmac` sidecar has two forms under that key, each
+holding a lowercase hexadecimal HMAC-SHA-256:
+
+- v2, `v2 <MAC>` and a newline, exactly 68 bytes. The MAC covers the line
+  `backup-crypto-v2`, a line with the file's base name, then the ciphertext, so
+  it authenticates the bytes, the name and the date the name carries. A name
+  holding `/` or a newline is refused. `backup.sh` writes this form.
+- Legacy, `<MAC>` and a newline. The MAC covers the ciphertext alone, so it
+  authenticates the bytes only and a renamed file still verifies. Whitespace is
+  stripped before this form is read, as it always was. One-argument
+  `backup_encrypt` stays legacy; the log archives use it.
+
+Ciphertext always starts with `Salted__`, so a v2 input never equals a legacy
+input, and a v2 sidecar with its marker removed fails the legacy check.
+
+- The new library restores old dumps and log archives.
+- The old library refuses a v2 sidecar as malformed, an authentication failure,
+  so a rollback needs the new `restore.sh` to read the dumps written since.
+- A v2 copy under another name is refused. Restore it under its original name.
+- The sidecar's file name is still `.hmac`, so mirrors and off-site copies keep
+  working: they copy and compare bytes and never read the form.
 
 The passphrase is passed to OpenSSL with `-pass env:BACKUP_PASSPHRASE`.
 As in the old implementation, the derived MAC key does appear in an internal
 OpenSSL `-macopt` argument. Never enable shell tracing around secret handling;
-the public functions turn tracing off inside their subshells.
+the public functions turn tracing off inside their subshells. A same-user
+process that catches the key in argv while a backup or restore runs could forge
+a sidecar, including one for a renamed dump. The key depends only on the
+passphrase and the salt, so that holds for every dump under them, not only the
+one being handled.
 
 Compression, SQL headers/trailers and archive validation belong to callers.
 Authenticated restores through `deploy/restore.sh` refuse a symlinked dump or
@@ -72,6 +97,16 @@ wrappers could follow these links; the shared authentication helper now fails
 closed instead.
 Only `deploy/restore.sh` retains the historical explicit `RESTORE_UNVERIFIED=1`
 opt-in for a dump without a sidecar. The shared API has no authentication bypass.
+
+The automatic restore in `deploy/vm/vm-autostart.sh` uses only dumps with a v2
+sidecar, and chooses and ages them by the UTC date in the file name, never by a
+file time. A legacy dump is restored by hand with `deploy/restore.sh`, which
+prints one warning: the encrypted bytes are verified, the name and its date are
+not. `RESTORE_UNVERIFIED` is unchanged.
+
+What this leaves open: someone with access to the disk can still delete newer
+dumps, and the older one left is then the newest, bounded only by the age cap.
+Pruning and the mirror's retention windows still use file times.
 
 ## Packaging
 

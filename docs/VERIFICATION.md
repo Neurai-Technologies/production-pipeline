@@ -171,7 +171,8 @@ paragraphs; keep history.
     counts and an md5 over each table's ordered rows matched exactly
     between the source and the restored database.
   - Loop mode: the first cycle wrote `<prefix>-*.sql.gz.enc` (about
-    159 KB), its 65-byte `.hmac` and the heartbeat; `flock` and `openssl`
+    159 KB), its 65-byte `.hmac` (the legacy form of that date; a v2 sidecar
+    is 68 bytes) and the heartbeat; `flock` and `openssl`
     present, `/bin/sh` is busybox ash.
   - Lock: `backup.lock` was created in the `backup-lock` volume, and no
     lock file appeared in the backup directory.
@@ -216,6 +217,31 @@ paragraphs; keep history.
   - Not verified: a product's real data and init script, off-site copies
     (off in this run), and the daemon's Docker version and architecture,
     which the report does not record.
+- 2026-11-04, the code of commit 19405c503680d8f120e22548bd391630f49b205b, on
+  the same disposable Docker VM (server 29.2.1) and with the same command.
+  Result: PASS on PostgreSQL 16 and 17, with the generic log archive.
+  - File and size: `fakedump-*.sql.gz.enc` with its v2 `.hmac`, 83072 bytes
+    for both majors, written to a volume and to a bind-mounted host folder.
+  - Integrity: a copy with one byte changed and a renamed copy were both
+    refused at the authentication step; the untouched dump restored.
+  - Old format: a dump with a legacy sidecar restored, with the one warning
+    that its name and date are not authenticated.
+  - Row counts: the checksums matched the source for the v2 and legacy
+    restores, on both majors.
+  - Log archive: one fixture log, 224 bytes encrypted, for both majors.
+  - Secret: the drill's check passed. Cleanup: the run's containers, volumes,
+    network and images were removed.
+  - Not verified: a real unattended restore by `deploy/vm/vm-autostart.sh`
+    (its choice of dump is covered by unit tests with the real BSD `date`
+    only), a product's real data, and off-site copies (off in this run).
+- 2026-11-04, deploy order on the same daemon, with compose v5.1.3 and with
+  v5.6.1 inside the deployer's base image `docker:29.9.2-cli`, using a scratch
+  project with one built service, one image-only service and one under a
+  profile. `build` left running containers alone and skipped nothing needed;
+  a failed `build` returned non-zero and changed nothing; `up -d --no-build`
+  then recreated only the rebuilt service; the profile's service never
+  started; `up -d --no-build` with a built image missing failed rather than
+  building. Not verified: a full deploy loop run with this order.
 
 ### Shared crypto verification
 

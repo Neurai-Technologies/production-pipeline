@@ -37,5 +37,6 @@ sync-agents:
     python3 scripts/sync_agents.py
 
 # Runs from the pre-commit hook when defined, never through git-gate. Keep it
-# fast; the pre-push hook and GitHub CI run ci.
+# fast; GitHub CI runs ci, and so does the pre-push hook unless the push is
+# documentation only.
 pre-commit: docs bypasses
