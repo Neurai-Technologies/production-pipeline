@@ -351,8 +351,8 @@ pick_newest_dump() {
             skipped=$((skipped + 1)); continue
         fi
         if [ ! -f "${dump}.hmac" ] || [ -L "${dump}.hmac" ] || [ "$(head -c 3 "${dump}.hmac" 2>/dev/null)" != "v2 " ]; then
-            not_v2=$((not_v2 + 1))
-            continue
+            echo "passing over ${safe_name}: legacy sidecar or none"
+            not_v2=$((not_v2 + 1)); continue
         fi
         if [ -z "$newest" ] || [ "$epoch" -gt "$newest_epoch" ]; then
             newest=$dump
