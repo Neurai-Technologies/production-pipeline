@@ -27,6 +27,9 @@
 # The sidecar binds the dump to the file name given here, and so to the date
 # in that name. An old-format sidecar authenticates the bytes only: such a dump
 # still restores, with one warning line, and a rename of it goes unnoticed.
+# RESTORE_REQUIRE_V2=1 refuses it instead, and refuses a dump with no sidecar
+# whatever RESTORE_UNVERIFIED says: vm-autostart sets it, since its age cap
+# trusts the date in the name. A restore by hand leaves it unset.
 #
 # Two temp paths hold plaintext during a restore, both under ${TMPDIR:-/tmp}:
 # <PRODUCT>-restore.* (the whole dump) and backup-crypto.*/plaintext (gzipped,
@@ -74,8 +77,14 @@ echo "restoring into compose project: ${PROJECT}" >&2
 # The shared helper verifies before releasing plaintext. Only this wrapper
 # retains the explicit legacy opt-in for dumps predating authenticated sidecars.
 . "$(dirname "$0")/backup/crypto.sh"
+decrypt_option=--warn-legacy
+[ "${RESTORE_REQUIRE_V2:-}" != 1 ] || decrypt_option=--require-v2
 verified=1
 if [ ! -f "${file}.hmac" ]; then
+    if [ "${RESTORE_REQUIRE_V2:-}" = 1 ]; then
+        echo "REFUSED: ${file}.hmac is missing, and this restore requires a v2 sidecar." >&2
+        exit 1
+    fi
     if [ "${RESTORE_UNVERIFIED:-0}" != 1 ]; then
         echo "REFUSED: ${file}.hmac is missing. Dumps written before the sidecar existed have none; set RESTORE_UNVERIFIED=1 to restore one anyway." >&2
         exit 1
@@ -88,7 +97,7 @@ umask 077
 plain=$(mktemp "${TMPDIR:-/tmp}/${PRODUCT}-restore.XXXXXX")
 trap 'rm -f "$plain" || :' EXIT
 if [ "$verified" = 1 ]; then
-    if ! backup_decrypt "$file" --warn-legacy | gunzip >"$plain"; then
+    if ! backup_decrypt "$file" "$decrypt_option" | gunzip >"$plain"; then
         echo "REFUSED: dump authentication or decryption failed" >&2
         exit 1
     fi

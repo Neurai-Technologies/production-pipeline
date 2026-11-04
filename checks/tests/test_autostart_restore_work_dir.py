@@ -249,6 +249,18 @@ def test_a_private_folder_reaches_restore_and_nothing_else(
     assert all(line.startswith(f"{inherited}|") for line in run.docker.splitlines()), run.docker
 
 
+def test_the_login_restore_requires_v2_with_no_opt_in(
+    tmp_path: Path, script: Path, product_settings: Callable[..., ProductSettings], private_dir: Path
+) -> None:
+    """The dump's marker makes the choice; this is what makes restore.sh enforce it."""
+    seen = tmp_path / "restore-env"
+    body = f'printf "%s|%s" "${{RESTORE_REQUIRE_V2-UNSET}}" "${{RESTORE_UNVERIFIED-UNSET}}" >{shlex.quote(str(seen))}\n'
+    env = product_settings(**{SETTING: str(private_dir)})
+    run = run_login(tmp_path, script, env, volume_present=False, restore_body=body)
+    assert run.result.returncode == 0, run.result.stdout + run.result.stderr
+    assert seen.read_text() == "1|"
+
+
 def plant_leftovers(folder: Path, env: ProductSettings) -> list[Path]:
     """What a killed restore leaves, by both patterns; returns those paths."""
     dump = folder / f"{env.values['PRODUCT']}-restore.abc123"

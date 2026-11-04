@@ -152,21 +152,26 @@ backup_verify() (
 # Authenticates and completely decrypts a private snapshot before emitting any
 # plaintext to stdout. The caller owns decompression and application checks.
 # --warn-legacy: say on stderr when the snapshot's sidecar has the legacy form.
+# --require-v2: refuse, with no plaintext, when it has that form.
 # Read here because the sidecar on disk may have changed since the snapshot.
 backup_decrypt() (
     set +x
     set -eu
     umask 077
     case "$#:${2:-}" in
-        1:|2:--warn-legacy) ;;
-        *) echo 'usage: backup_decrypt FILE [--warn-legacy]' >&2; exit 2 ;;
+        1:|2:--warn-legacy|2:--require-v2) ;;
+        *) echo 'usage: backup_decrypt FILE [--warn-legacy|--require-v2]' >&2; exit 2 ;;
     esac
     _backup_crypto_require || exit 1
     work=$(mktemp -d "${TMPDIR:-/tmp}/backup-crypto.XXXXXX") || exit 1
     trap 'rm -rf "$work"' EXIT
     trap 'exit 1' HUP INT TERM
     _backup_crypto_authenticate "$1" "$work" || exit 1
-    if [ "$#" -eq 2 ] && [ "$sidecar_form" = legacy ]; then
+    if [ "${2:-}" = --require-v2 ] && [ "$sidecar_form" = legacy ]; then
+        echo 'backup crypto: this restore requires a v2 .hmac sidecar; a legacy one does not bind the file name or its date' >&2
+        exit 1
+    fi
+    if [ "${2:-}" = --warn-legacy ] && [ "$sidecar_form" = legacy ]; then
         echo 'WARNING: old format .hmac sidecar: the bytes are authenticated, but the file name and its date are not' >&2
     fi
     openssl enc -d -aes-256-cbc -pbkdf2 -pass env:BACKUP_PASSPHRASE -in "$work/ciphertext" -out "$work/plaintext" || exit 1

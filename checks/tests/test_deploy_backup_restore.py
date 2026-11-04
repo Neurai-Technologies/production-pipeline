@@ -693,6 +693,60 @@ def test_restore_refuses_a_dump_without_a_sidecar_unless_told(
     assert received.read_text() == FAKE_DUMP
 
 
+def test_a_required_v2_refuses_a_legacy_dump_that_verifies(
+    tmp_path: Path, backup_dir: Path, env: ProductSettings
+) -> None:
+    """The login's restore: a legacy pair put under the chosen name verifies, since legacy binds no name."""
+    dump = dumps(backup_dir, env)[0]
+    legacy = hmac_via(BACKUP, dump, env.values["BACKUP_HMAC_SALT"])
+    Path(f"{dump}.hmac").write_text(f"{legacy}\n")
+    result, received = restore(tmp_path, env, dump, RESTORE_UNVERIFIED="", RESTORE_REQUIRE_V2="1")
+    assert result.returncode == 1 and "REFUSED:" in result.stderr
+    assert "requires a v2 .hmac sidecar" in result.stderr and "old format" not in result.stderr
+    assert not received.exists(), "a legacy dump reached psql"
+    assert not plaintext_left(tmp_path, env)
+
+
+def test_a_required_v2_accepts_a_v2_dump(tmp_path: Path, backup_dir: Path, env: ProductSettings) -> None:
+    dump = dumps(backup_dir, env)[0]
+    assert Path(f"{dump}.hmac").read_text().startswith("v2 ")
+    result, received = restore(tmp_path, env, dump, RESTORE_UNVERIFIED="", RESTORE_REQUIRE_V2="1")
+    assert result.returncode == 0, result.stderr
+    assert received.read_text() == FAKE_DUMP
+
+
+def test_a_required_v2_cannot_be_opened_by_restore_unverified(
+    tmp_path: Path, backup_dir: Path, env: ProductSettings
+) -> None:
+    dump = dumps(backup_dir, env)[0]
+    Path(f"{dump}.hmac").unlink()
+    result, received = restore(tmp_path, env, dump, RESTORE_UNVERIFIED="1", RESTORE_REQUIRE_V2="1")
+    assert result.returncode == 1 and "REFUSED:" in result.stderr
+    assert "RESTORE_UNVERIFIED=1" not in result.stderr, "the refusal offers an opt-in that does not apply"
+    assert not received.exists(), "a dump with no sidecar reached psql"
+    assert not plaintext_left(tmp_path, env)
+
+
+def test_an_empty_require_v2_leaves_the_by_hand_restore_as_it_was(
+    tmp_path: Path, backup_dir: Path, env: ProductSettings
+) -> None:
+    dump = dumps(backup_dir, env)[0]
+    legacy = hmac_via(BACKUP, dump, env.values["BACKUP_HMAC_SALT"])
+    Path(f"{dump}.hmac").write_text(f"{legacy}\n")
+    result, received = restore(tmp_path, env, dump, RESTORE_REQUIRE_V2="")
+    assert result.returncode == 0, result.stderr
+    assert received.read_text() == FAKE_DUMP
+    assert result.stderr.count("old format") == 1, result.stderr
+    received.unlink()
+    Path(f"{dump}.hmac").unlink()
+    result, received = restore(tmp_path, env, dump, RESTORE_REQUIRE_V2="")
+    assert result.returncode == 1 and "RESTORE_UNVERIFIED=1" in result.stderr
+    assert not received.exists()
+    result, received = restore(tmp_path, env, dump, RESTORE_REQUIRE_V2="", RESTORE_UNVERIFIED="1")
+    assert result.returncode == 0, result.stderr
+    assert received.read_text() == FAKE_DUMP
+
+
 def test_restore_cannot_fall_back_when_a_checked_sidecar_disappears(
     tmp_path: Path, backup_dir: Path, env: ProductSettings
 ) -> None:

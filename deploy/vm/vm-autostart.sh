@@ -420,7 +420,11 @@ timeout -k 10 10 docker compose -p "$COMPOSE_PROJECT" exec -T "$DB_SERVICE" pg_i
     || fail "postgres never became ready during auto-restore"
 
 # RESTORE_UNVERIFIED empty: an unattended restore must never pick up the
-# manual-only escape hatch. RESTORE_PROJECT named rather than left to the
+# manual-only escape hatch. RESTORE_REQUIRE_V2=1: pick_newest_dump chose a v2
+# dump by its marker, but the files can change before this call, and a legacy
+# pair put under the chosen name would verify and defeat the age cap; the
+# authentication itself refuses one.
+# RESTORE_PROJECT named rather than left to the
 # default even though they agree: this call site really does mean the live
 # stack, and restore.sh now announces whichever project it resolved, so the
 # recovery log says which one this was.
@@ -434,7 +438,7 @@ timeout -k 10 10 docker compose -p "$COMPOSE_PROJECT" exec -T "$DB_SERVICE" pg_i
 # TMPDIR is for restore.sh alone, the same way: the rest of this script, and its
 # colima and docker calls, keep the environment they had. Without the setting
 # the value is the folder restore.sh would pick by itself.
-RESTORE_UNVERIFIED= RESTORE_PROJECT="$COMPOSE_PROJECT" PRODUCT_SETTINGS="$(dirname "$0")/product.settings" \
+RESTORE_UNVERIFIED= RESTORE_REQUIRE_V2=1 RESTORE_PROJECT="$COMPOSE_PROJECT" PRODUCT_SETTINGS="$(dirname "$0")/product.settings" \
     TMPDIR="${RESTORE_WORK_DIR:-${TMPDIR:-/tmp}}" \
     BACKUP_PASSPHRASE="$(grep "^BACKUP_PASSPHRASE=" .env | cut -d= -f2-)" \
     timeout -k 10 1800 bash "${REPO}/${LIBRARY_DIR}/deploy/restore.sh" "$newest" 9>&-

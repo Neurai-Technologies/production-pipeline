@@ -67,6 +67,7 @@ NOT_PRODUCT_KEYS = {
     "RESTORE_SERVICE": "set per run (the drill names its own service)",
     "RESTORE_PROJECT": "set per run (the drill names its own project)",
     "RESTORE_UNVERIFIED": "set per run, by hand only",
+    "RESTORE_REQUIRE_V2": "set per run, by vm-autostart.sh's restore call",
     "TMPDIR": "the system's",
     # A script's own variable, defaulted where a message prints it.
     "FAILED_STEP": "deploy-loop.sh's own variable",

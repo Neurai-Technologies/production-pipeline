@@ -296,6 +296,37 @@ def test_the_warning_reads_the_snapshot_not_a_sidecar_changed_afterwards(tmp_pat
     assert b"old format" in result.stderr
 
 
+def test_require_v2_refuses_a_passing_legacy_sidecar_and_accepts_v2(tmp_path: Path) -> None:
+    legacy = tmp_path / "legacy.enc"
+    legacy_pair(legacy)
+    refused = invoke("backup_decrypt", legacy, "--require-v2", TMPDIR=str(tmp_path))
+    assert refused.returncode != 0 and not refused.stdout
+    assert b"requires a v2 .hmac sidecar" in refused.stderr and b"old format" not in refused.stderr
+    current = tmp_path / "current.enc"
+    v2_pair(current)
+    accepted = invoke("backup_decrypt", current, "--require-v2", TMPDIR=str(tmp_path))
+    assert accepted.returncode == 0 and accepted.stdout == DATA and not accepted.stderr
+    both = invoke("backup_decrypt", current, "--warn-legacy", "--require-v2", TMPDIR=str(tmp_path))
+    assert both.returncode == 2
+
+
+def test_require_v2_reads_the_snapshot_not_a_sidecar_changed_afterwards(tmp_path: Path) -> None:
+    path = tmp_path / "archive.enc"
+    legacy_pair(path)
+    real = shutil.which("openssl")
+    assert real
+    fake(
+        tmp_path / "bin",
+        "openssl",
+        f'case " $* " in *" dgst "*) printf "v2 %064d\\n" 0 >"{path}.hmac" ;; esac\nexec "{real}" "$@"\n',
+    )
+    path_env = f"{tmp_path / 'bin'}:{os.environ['PATH']}"
+    result = invoke("backup_decrypt", path, "--require-v2", PATH=path_env, TMPDIR=str(tmp_path))
+    assert Path(f"{path}.hmac").read_text().startswith("v2 "), "the fixture must change the sidecar on disk"
+    assert result.returncode != 0 and not result.stdout
+    assert b"requires a v2 .hmac sidecar" in result.stderr
+
+
 def test_import_is_side_effect_free_and_requires_no_settings(tmp_path: Path) -> None:
     result = subprocess.run(
         ["bash", "-c", '. "$1"', "import-test", str(CRYPTO)],
