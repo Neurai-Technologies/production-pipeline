@@ -583,6 +583,46 @@ def test_the_name_is_read_as_utc_in_any_time_zone(script: Path, env: ProductSett
     assert f"epoch={expected}\n" in result.stdout, result.stdout + result.stderr
 
 
+def test_a_forged_file_name_logs_one_line_with_its_odd_characters_replaced(
+    script: Path, env: ProductSettings
+) -> None:
+    """The log is the only record of a skip, so a name must not be able to write a line of its own.
+
+    Runs everywhere: this name stops at the pattern, before the BSD date call.
+    """
+    prefix = env.values["BACKUP_PREFIX"]
+    folder = Path(env.values["BACKUP_DIR"])
+    folder.mkdir(parents=True)
+    (folder / f"{prefix}-x\nrestored fine\x1b[2K.sql.gz.enc").write_text("ciphertext")
+    result = pick(script, env)
+    assert result.returncode == 0, result.stderr
+    logged = result.stdout.split("chosen=", 1)[0].splitlines()
+    assert logged == [
+        f"skipping {prefix}-x?restored?fine??2K.sql.gz.enc: its name holds no YYYYMMDD-HHMMSS date"
+    ]
+
+
+def test_a_letter_outside_ascii_is_replaced_in_a_utf_8_locale(
+    script: Path, env: ProductSettings, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """bash 3.2 reads a bracket range by the locale's collation, so an é falls inside A-Za-z there."""
+    monkeypatch.setenv("LC_ALL", "en_US.UTF-8")
+    prefix = env.values["BACKUP_PREFIX"]
+    folder = Path(env.values["BACKUP_DIR"])
+    folder.mkdir(parents=True)
+    (folder / f"{prefix}-é.sql.gz.enc").write_text("ciphertext")
+    result = pick(script, env)
+    assert result.returncode == 0, result.stderr
+    logged = result.stdout.split("chosen=", 1)[0].splitlines()
+    assert logged == [f"skipping {prefix}-??.sql.gz.enc: its name holds no YYYYMMDD-HHMMSS date"]
+
+
+def test_no_skip_line_prints_the_raw_name(script: Path) -> None:
+    """The other two skip lines need a name that already passed the pattern, so they are read, not run."""
+    function = lift(script, "pick_newest_dump")
+    assert function.count('echo "skipping ${safe_name}:') == 3 and "skipping ${name}" not in function
+
+
 def test_nothing_in_step_6_reads_a_file_time(script: Path) -> None:
     """Runs everywhere, so a Linux CI still notices the old selection coming back."""
     chosen = step_6(script).split('alert "database volume missing', 1)[0]

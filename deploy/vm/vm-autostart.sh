@@ -312,13 +312,19 @@ fi
 # marker forged on the dump actually chosen makes it refuse, and the run then
 # fails hard, with no fall back to an older dump. A dump skipped or passed over
 # at the choice below leaves the next older v2 dump, as deleting it would, and
-# only the log records it. What this cannot see is a newer dump deleted from the
-# disk; the older one left is then the newest. The age cap bounds both.
+# only the log records it. Renaming the newest dump to an older date, or out of
+# the pattern, leaves the next older one chosen with no log line at all. What
+# this cannot see is a newer dump deleted from the disk; the older one left is
+# then the newest. The age cap bounds all of these.
+#
+# A skip logs safe_name, so a file name cannot forge a log line. It comes from tr
+# under LC_ALL=C: bash 3.2 reads a bracket range by the locale's collation, which
+# lets a letter outside ASCII through in a UTF-8 locale.
 echo "${PGDATA_VOLUME} is absent on a verified datadisk - entering auto-restore"
 # Sets newest to the v2 dump with the greatest name date, newest_epoch to that
 # date, and not_v2 to how many dumps were passed over for their sidecar.
 pick_newest_dump() {
-    local dump name stamp epoch now
+    local dump name safe_name stamp epoch now
     now=$(date +%s)
     newest=""
     newest_epoch=0
@@ -327,20 +333,21 @@ pick_newest_dump() {
         # A pattern that matched nothing stays as its own text.
         [ -e "$dump" ] || [ -L "$dump" ] || continue
         name=$(basename "$dump")
+        safe_name=$(printf %s "$name" | LC_ALL=C tr -c 'A-Za-z0-9._-' '?')
         stamp=${name#"${BACKUP_PREFIX}"-}
         stamp=${stamp%.sql.gz.enc}
         case "$stamp" in
             [0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]-[0-9][0-9][0-9][0-9][0-9][0-9]) ;;
-            *) echo "skipping ${name}: its name holds no YYYYMMDD-HHMMSS date"; continue ;;
+            *) echo "skipping ${safe_name}: its name holds no YYYYMMDD-HHMMSS date"; continue ;;
         esac
         # date carries 20260230 over into March, so only the round trip rejects it.
         epoch=$(date -j -u -f '%Y%m%d-%H%M%S' "$stamp" +%s 2>/dev/null) || epoch=""
         if [ -z "$epoch" ] || [ "$(date -j -u -r "$epoch" '+%Y%m%d-%H%M%S' 2>/dev/null)" != "$stamp" ]; then
-            echo "skipping ${name}: ${stamp} is not a real date"
+            echo "skipping ${safe_name}: ${stamp} is not a real date"
             continue
         fi
         if [ "$epoch" -gt $((now + 600)) ]; then
-            echo "skipping ${name}: its name is dated more than 600s ahead of now"
+            echo "skipping ${safe_name}: its name is dated more than 600s ahead of now"
             continue
         fi
         if [ ! -f "${dump}.hmac" ] || [ -L "${dump}.hmac" ] || [ "$(head -c 3 "${dump}.hmac" 2>/dev/null)" != "v2 " ]; then
