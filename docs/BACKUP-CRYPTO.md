@@ -26,11 +26,12 @@ must be installed. Each function exits non-zero on refusal or failure.
   sidecar is legacy.
 - `backup_verify FILE` verifies a private snapshot of ciphertext and sidecar
   without decrypting or producing stdout.
-- `backup_decrypt FILE [--warn-legacy]` verifies that snapshot, decrypts it
+- `backup_decrypt FILE [--warn-legacy|--require-v2]` verifies that snapshot, decrypts it
   completely into a private temporary file, then writes plaintext to stdout. Failed integrity
   or decryption produces no plaintext. A source change after verification
   cannot change the snapshot being decrypted. `--warn-legacy` prints one
-  warning line on stderr when the snapshot's sidecar has the legacy form.
+  warning line on stderr when the snapshot's sidecar has the legacy form;
+  `--require-v2` refuses that form, with no plaintext.
 
 The helper sets `umask 077`: new ciphertext and sidecars are owner-only
 (`0600`), and work directories are `0700`. Earlier wrappers running with
@@ -71,8 +72,10 @@ holding a lowercase hexadecimal HMAC-SHA-256:
   stripped before this form is read, as it always was. One-argument
   `backup_encrypt` stays legacy; the log archives use it.
 
-Ciphertext always starts with `Salted__`, so a v2 input never equals a legacy
-input, and a v2 sidecar with its marker removed fails the legacy check.
+`openssl enc -salt` starts every output with `Salted__`, and authentication
+refuses a file that does not start with it. So a v2 input never equals a legacy
+input, and a v2 sidecar with its marker removed cannot pass the legacy check,
+even over a file holding that v2 input.
 
 - The new library restores old dumps and log archives.
 - The old library refuses a v2 sidecar as malformed, an authentication failure,
@@ -100,12 +103,20 @@ opt-in for a dump without a sidecar. The shared API has no authentication bypass
 
 The automatic restore in `deploy/vm/vm-autostart.sh` uses only dumps with a v2
 sidecar, and chooses and ages them by the UTC date in the file name, never by a
-file time. A legacy dump is restored by hand with `deploy/restore.sh`, which
-prints one warning: the encrypted bytes are verified, the name and its date are
-not. `RESTORE_UNVERIFIED` is unchanged.
+file time. It passes `RESTORE_REQUIRE_V2=1`, so `restore.sh` itself refuses a
+legacy dump at authentication, and a dump with no sidecar whatever
+`RESTORE_UNVERIFIED` says. That variable is internal, not a product setting. A
+legacy dump is restored by hand with `deploy/restore.sh`, which prints one
+warning: the encrypted bytes are verified, the name and its date are not. For a
+restore by hand `RESTORE_UNVERIFIED` is unchanged.
 
 What this leaves open: someone with access to the disk can still delete newer
 dumps, and the older one left is then the newest, bounded only by the age cap.
+A dump skipped or passed over at the choice step (its name dated more than 600
+seconds ahead or holding no real date, its marker changed or its sidecar
+removed) has the same effect: the next older v2 dump is chosen, and only the log
+records it. That gives no more than deleting the dump. A name or marker forged
+on the dump actually chosen makes `restore.sh` refuse, with no fall back.
 Pruning and the mirror's retention windows still use file times.
 
 ## Packaging

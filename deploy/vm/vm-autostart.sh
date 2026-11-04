@@ -308,10 +308,12 @@ fi
 #
 # Fresh is read from the UTC date backup.sh puts in the dump's name. Nothing
 # here trusts a file time. Nothing here trusts the name or the sidecar's marker
-# either, until restore.sh has verified the HMAC that binds them: a forged name
-# or marker only makes it refuse, and the run then fails hard, with no fall back
-# to an older dump. What this cannot see is a newer dump deleted from the disk;
-# the older one left is then the newest, and the age cap is what bounds that.
+# either, until restore.sh has verified the HMAC that binds them: a name or
+# marker forged on the dump actually chosen makes it refuse, and the run then
+# fails hard, with no fall back to an older dump. A dump skipped or passed over
+# at the choice below leaves the next older v2 dump, as deleting it would, and
+# only the log records it. What this cannot see is a newer dump deleted from the
+# disk; the older one left is then the newest. The age cap bounds both.
 echo "${PGDATA_VOLUME} is absent on a verified datadisk - entering auto-restore"
 # Sets newest to the v2 dump with the greatest name date, newest_epoch to that
 # date, and not_v2 to how many dumps were passed over for their sidecar.

@@ -217,11 +217,12 @@ paragraphs; keep history.
   - Not verified: a product's real data and init script, off-site copies
     (off in this run), and the daemon's Docker version and architecture,
     which the report does not record.
-- 2026-11-04, the code of commit 19405c503680d8f120e22548bd391630f49b205b, on
+- 2026-11-04, the code of commit 89ff1aae1ac30a48d0dcbef9a8487031b65f7305, on
   the same disposable Docker VM (server 29.2.1) and with the same command.
   Result: PASS on PostgreSQL 16 and 17, with the generic log archive.
   - File and size: `fakedump-*.sql.gz.enc` with its v2 `.hmac`, 83072 bytes
-    for both majors, written to a volume and to a bind-mounted host folder.
+    (one 83056) across both majors, written to a volume and to a bind-mounted
+    host folder.
   - Integrity: a copy with one byte changed and a renamed copy were both
     refused at the authentication step; the untouched dump restored.
   - Old format: a dump with a legacy sidecar restored, with the one warning
