@@ -343,7 +343,7 @@ pick_newest_dump() {
         # date carries 20260230 over into March, so only the round trip rejects it.
         epoch=$(date -j -u -f '%Y%m%d-%H%M%S' "$stamp" +%s 2>/dev/null) || epoch=""
         if [ -z "$epoch" ] || [ "$(date -j -u -r "$epoch" '+%Y%m%d-%H%M%S' 2>/dev/null)" != "$stamp" ]; then
-            echo "skipping ${safe_name}: ${stamp} is not a real date"
+            echo "skipping ${safe_name}: its name holds no real date"
             continue
         fi
         if [ "$epoch" -gt $((now + 600)) ]; then
