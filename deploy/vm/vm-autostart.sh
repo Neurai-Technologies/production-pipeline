@@ -312,9 +312,10 @@ fi
 # marker forged on the dump actually chosen makes it refuse, and the run then
 # fails hard, with no fall back to an older dump. A dump skipped or passed over
 # at the choice below leaves the next older v2 dump, as deleting it would; the
-# log says which and why, and the restore's alert gives the count. Renaming the
-# newest dump to an older date, or out of the pattern, leaves the next older one
-# chosen with no trace: no log line and no count. What this cannot see is a newer
+# log says which and why, and the restore's alert gives the count, older dumps
+# included. Renaming the newest dump and its sidecar to an older date, or the dump
+# out of the pattern, leaves the next older one chosen with no trace: no log line
+# and no count. What this cannot see is a newer
 # dump deleted from the disk; the older one left is then the newest. The age cap
 # bounds all of these.
 #

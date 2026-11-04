@@ -117,10 +117,13 @@ A dump skipped or passed over at the choice step (its name dated more than 600
 seconds ahead or holding no real date, its marker changed or its sidecar
 removed) has the same effect: the next older v2 dump is chosen. The log says
 which dump and why, and the login alert for the restore gives how many there
-were, when there are any. That gives no more than deleting the dump. Renaming
-the newest dump to an older date, or out of the dump pattern, has the same
-effect as deleting it too: the next older one is chosen and no trace is left,
-with no log line and no count in the alert. A name or marker forged on the dump
+were, when there are any. The count also takes in dumps older than the one
+chosen, so old-format dumps kept after an upgrade raise it, and only the log
+tells them from a newer dump passed over. That gives no more than deleting the
+dump. Renaming the newest dump and its sidecar to an older date, or the dump out
+of the dump pattern, has the same effect as deleting it too: the next older one
+is chosen and no trace is left, with no log line and no count in the alert. A
+dump renamed without its sidecar is passed over. A name or marker forged on the dump
 actually chosen makes `restore.sh` refuse, with no fall back.
 Pruning and the mirror's retention windows still use file times.
 
