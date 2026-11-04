@@ -103,9 +103,10 @@ def test_templates_and_source_folders_pass_the_path_gate(path: str) -> None:
 
 
 def test_the_path_gate_lets_this_tree_commit() -> None:
-    """It runs over every tracked path on every commit, so a rule that matches
-    one of them would refuse every commit until someone deleted the rule.
-    New, not-ignored files count: they are the next commit."""
+    """`just ci` and CI run it over every tracked path, so a rule that matches
+    one of them fails every run until someone deletes the rule. New, not-ignored
+    files count: they are the next commit. The pre-commit hook checks only staged
+    paths, in a clone where `just setup` ran; git-gate never runs it."""
     names = subprocess.run(
         ["git", "ls-files", "--cached", "--others", "--exclude-standard", "-z"],
         cwd=LIBRARY_ROOT,

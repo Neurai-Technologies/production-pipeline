@@ -26,7 +26,7 @@ bypasses:
 # hook in a clone where `just setup` ran, and by git-gate for a session; GitHub
 # CI scans the files of its clean checkout.
 secrets:
-    if git rev-parse --verify HEAD >/dev/null 2>&1; then gitleaks git . --redact --no-banner --ignore-gitleaks-allow --config .gitleaks.toml; else echo "No commits yet; nothing to scan (the pre-commit hook scans each staged change)."; fi
+    if git rev-parse --verify HEAD >/dev/null 2>&1; then gitleaks git . --redact --no-banner --ignore-gitleaks-allow --config .gitleaks.toml; else echo "No commits yet; nothing to scan (each staged change is scanned by the pre-commit hook after just setup, or by git-gate for a session)."; fi
 
 # The library's check suite (pytest 9.1.1 and PyYAML 6.0.3; see docs/VERIFICATION.md).
 checks:
