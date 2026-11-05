@@ -545,7 +545,7 @@ def test_the_log_names_a_passed_over_dump(script: Path, env: ProductSettings, si
     passed_over = put_dump(env, stamp(600), sidecar=sidecar)
     put_dump(env, stamp(7200))
     result = pick(script, env)
-    assert f"passing over {passed_over.name}: legacy sidecar or none\n" in result.stdout, result.stdout
+    assert f"passing over {passed_over.name}: no v2 sidecar\n" in result.stdout, result.stdout
 
 
 @pytest.mark.parametrize("sidecar", [LEGACY_SIDECAR, None, "v2", "V2 " + "0" * 64, "v3 " + "0" * 64])

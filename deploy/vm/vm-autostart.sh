@@ -352,7 +352,7 @@ pick_newest_dump() {
             skipped=$((skipped + 1)); continue
         fi
         if [ ! -f "${dump}.hmac" ] || [ -L "${dump}.hmac" ] || [ "$(head -c 3 "${dump}.hmac" 2>/dev/null)" != "v2 " ]; then
-            echo "passing over ${safe_name}: legacy sidecar or none"
+            echo "passing over ${safe_name}: no v2 sidecar"
             not_v2=$((not_v2 + 1)); continue
         fi
         if [ -z "$newest" ] || [ "$epoch" -gt "$newest_epoch" ]; then
@@ -365,10 +365,10 @@ pick_newest_dump() {
 pick_newest_dump
 if [ -z "$newest" ]; then
     [ "$not_v2" -eq 0 ] \
-        || fail "${not_v2} dump(s) in ${BK} have a legacy sidecar or none - auto-restore uses only v2 dumps; restore one by hand with restore.sh"
+        || fail "${not_v2} dump(s) in ${BK} have no v2 sidecar - auto-restore uses only v2 dumps; restore one by hand with restore.sh"
     fail "no dumps in ${BK} - cannot auto-restore, restore manually"
 fi
-[ "$not_v2" -eq 0 ] || echo "passed over ${not_v2} dump(s) with a legacy sidecar or none"
+[ "$not_v2" -eq 0 ] || echo "passed over ${not_v2} dump(s) with no v2 sidecar"
 age_h=$(( ( $(date +%s) - newest_epoch ) / 3600 ))
 [ "$age_h" -le "$MAX_DUMP_AGE_HOURS" ] \
     || fail "newest dump is ${age_h}h old (cap ${MAX_DUMP_AGE_HOURS}h) - too stale to restore unattended; restore manually"
