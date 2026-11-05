@@ -123,8 +123,10 @@ tells them from a newer dump passed over. That gives no more than deleting the
 dump. Renaming the newest dump and its sidecar to an older date, or the dump out
 of the dump pattern, has the same effect as deleting it too: the next older one
 is chosen and no trace is left, with no log line and no count in the alert. A
-dump renamed without its sidecar is passed over. A name or marker forged on the dump
-actually chosen makes `restore.sh` refuse, with no fall back.
+dump renamed without its sidecar to another valid date is passed over; a name
+holding no real date or dated too far ahead is skipped, sidecar or not. A name or
+marker forged on the dump actually chosen makes `restore.sh` refuse, with no fall
+back.
 Pruning and the mirror's retention windows still use file times.
 
 The name binding helps only when the dumps are on a different disk from the
