@@ -49,10 +49,10 @@ REAL_LS = f'exec {LS_PATH} "$@"\n'
 DATE_PATH = shlex.quote(str(shutil.which("date")))
 macos_only = pytest.mark.skipif(sys.platform != "darwin", reason="chmod +a and ls -e are macOS-only")
 # The script reads a dump's name with BSD date, and CI runs on Linux. This fake
-# answers those two forms as macOS does, measured there: a day its month lacks
-# carries over (20260230 into March), so only the script's round trip rejects it,
-# and what BSD strptime cannot parse fails. A changed form fails too; every call
-# without -j goes to the real date.
+# answers those two forms as macOS does, measured there (MEASURED_BSD_DATE): a day
+# its month lacks carries over (20260230 into March, day 00 back into the month
+# before), so only the script's round trip rejects it, and what BSD strptime cannot
+# parse fails. A changed form fails too; every call without -j goes to the real date.
 FAKE_BSD_DATE = (
     f'[ "$1" = -j ] || exec {DATE_PATH} "$@"\n'
     f"exec {shlex.quote(sys.executable)} - \"$@\" <<'EOF'\n"
@@ -259,6 +259,44 @@ def run_login(
         "PGDATA_VOLUME",
     )
     return run_code(tmp_path, prelude(script, env, names) + after_the_lock(script), None)
+
+
+# What BSD date answers, measured on macOS: the epoch and the script's round trip
+# of it, or None where it refuses. Day 00 and second 60 are accepted and carry over.
+MEASURED_BSD_DATE = {
+    "20260101-000059": ("1767225659", "20260101-000059"),
+    "20260100-000000": ("1767139200", "20251231-000000"),
+    "20260132-000000": None,
+    "20260001-000000": None,
+    "20261301-000000": None,
+    "20260101-240000": None,
+    "20260101-006000": None,
+    "20260101-000060": ("1767225660", "20260101-000100"),
+    "20260101-000061": None,
+}
+
+
+def bsd_date_answer(date: Path, stamp: str) -> tuple[str, str] | None:
+    """The two calls the script makes: the name's epoch, then that epoch back as a name."""
+    parsed = subprocess.run(
+        [date, "-j", "-u", "-f", "%Y%m%d-%H%M%S", stamp, "+%s"], capture_output=True, text=True, check=False
+    )
+    if parsed.returncode != 0:
+        return None
+    epoch = parsed.stdout.strip()
+    back = subprocess.run(
+        [date, "-j", "-u", "-r", epoch, "+%Y%m%d-%H%M%S"], capture_output=True, text=True, check=True
+    )
+    return epoch, back.stdout.strip()
+
+
+@pytest.mark.parametrize(("stamp", "measured"), MEASURED_BSD_DATE.items())
+def test_the_fake_date_answers_as_measured_on_macos(
+    tmp_path: Path, stamp: str, measured: tuple[str, str] | None
+) -> None:
+    assert bsd_date_answer(fake(tmp_path / "bin", "date", FAKE_BSD_DATE), stamp) == measured
+    if sys.platform == "darwin":
+        assert bsd_date_answer(Path("/bin/date"), stamp) == measured
 
 
 def test_a_private_folder_reaches_restore_and_nothing_else(
