@@ -382,7 +382,7 @@ if [ -n "$RESTORE_WORK_DIR" ]; then
     [ -z "$problem" ] || fail "${problem} - refusing to restore"
 fi
 skip_note=""; [ $((skipped + not_v2)) -eq 0 ] || skip_note=" - $((skipped + not_v2)) dump(s) skipped or passed over, see the log"
-alert "database volume missing - auto-restoring $(basename "$newest") (${age_h}h old)${skip_note}"
+alert "database volume missing${skip_note} - auto-restoring $(basename "$newest") (${age_h}h old)"
 
 cd "${REPO}/${COMPOSE_DIR}"
 

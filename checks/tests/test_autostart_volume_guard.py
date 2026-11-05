@@ -578,7 +578,8 @@ def test_a_symlinked_sidecar_is_not_a_v2_sidecar(tmp_path: Path, script: Path, e
 def test_the_alert_counts_the_dumps_skipped_or_passed_over(
     tmp_path: Path, script: Path, env: ProductSettings, malformed: int, ahead: int, legacy: int
 ) -> None:
-    """The owner sees this at login, without reading the log."""
+    """The owner sees this at login, without reading the log; it comes before the dump's name, as the
+    notification truncates."""
     for name in ["20260230-000000", "x20261010-000000"][:malformed]:
         put_dump(env, name)
     for extra in range(ahead):
@@ -590,7 +591,10 @@ def test_the_alert_counts_the_dumps_skipped_or_passed_over(
     assert result.returncode == 0, result.stdout + result.stderr
     assert called.read_text() == str(dump)
     count = malformed + ahead + legacy
-    assert f"{dump.name} (1h old) - {count} dump(s) skipped or passed over, see the log" in result.stderr
+    note = f"{count} dump(s) skipped or passed over, see the log"
+    assert (
+        f"[alert] database volume missing - {note} - auto-restoring {dump.name} (1h old)\n" in result.stderr
+    )
 
 
 def test_the_alert_says_nothing_of_skips_when_there_are_none(
