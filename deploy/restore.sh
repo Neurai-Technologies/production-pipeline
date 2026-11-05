@@ -38,7 +38,12 @@
 # TMPDIR itself to keep the plaintext off the default temp folder.
 set -eu
 set -o pipefail
-# The caller's choices, taken before the settings file can replace them.
+# The caller's two choices, taken before sourcing, so a stray RESTORE_REQUIRE_V2
+# or RESTORE_UNVERIFIED line in the settings does not change what the caller set.
+# This guards against a mistake, not a hostile file: the settings file is sourced
+# shell, trusted as much as this script, and a line in it can still set these
+# captured variables or anything else. RESTORE_PROJECT and RESTORE_SERVICE are
+# not captured: they are read after sourcing, so a settings line replaces them.
 caller_require_v2="${RESTORE_REQUIRE_V2:-}"
 caller_unverified="${RESTORE_UNVERIFIED:-}"
 # Settings: the product's product.settings, named by PRODUCT_SETTINGS (vm-autostart

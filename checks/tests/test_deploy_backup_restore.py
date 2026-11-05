@@ -752,10 +752,10 @@ def settings_also_say(env: ProductSettings, lines: str) -> None:
         settings.write(lines)
 
 
-def test_settings_cannot_loosen_what_an_automatic_restore_asked_for(
+def test_a_settings_line_setting_the_flags_does_not_change_what_an_automatic_restore_set(
     tmp_path: Path, backup_dir: Path, env: ProductSettings
 ) -> None:
-    """vm-autostart passes these two; a line in the settings file must not replace them."""
+    """vm-autostart passes these two; a line naming them in the settings file does not replace them."""
     settings_also_say(env, "RESTORE_REQUIRE_V2=\nRESTORE_UNVERIFIED=1\n")
     dump = dumps(backup_dir, env)[0]
     Path(f"{dump}.hmac").write_text(f"{hmac_via(BACKUP, dump, env.values['BACKUP_HMAC_SALT'])}\n")
@@ -769,7 +769,7 @@ def test_settings_cannot_loosen_what_an_automatic_restore_asked_for(
     assert not plaintext_left(tmp_path, env)
 
 
-def test_settings_cannot_open_a_restore_by_hand_that_set_nothing(
+def test_a_settings_line_setting_the_flag_does_not_open_a_restore_by_hand_that_set_nothing(
     tmp_path: Path, backup_dir: Path, env: ProductSettings
 ) -> None:
     settings_also_say(env, "RESTORE_UNVERIFIED=1\n")
@@ -780,7 +780,7 @@ def test_settings_cannot_open_a_restore_by_hand_that_set_nothing(
     assert not received.exists(), "a dump with no sidecar reached psql"
 
 
-def test_settings_cannot_refuse_what_a_restore_by_hand_asked_for(
+def test_a_settings_line_setting_the_flags_does_not_refuse_what_a_restore_by_hand_set(
     tmp_path: Path, backup_dir: Path, env: ProductSettings
 ) -> None:
     """The caller's own values hold in the other direction too."""
