@@ -66,7 +66,7 @@ instructions in other agents' files.
 - One fix at a time: implement, verify, commit, then start the next. Never
   bundle unrelated changes in one commit.
 - Commit verified work before ending a turn. No session pushes this
-  repository: its work is reviewed in the night run (global rules, S.5), and
+  repository: its work is reviewed in the night run, and
   the owner then pushes it to `ci`, CI runs, and a green run promotes `main`
   by fast-forward; never straight to `main`. docs/PROJECT.md says who pushes.
   Where a push deploys (docs/PROJECT.md), done means the live result is
@@ -258,12 +258,12 @@ Rules:
 - Consumers pin the full commit SHA of a release tag, with a `# vX.Y.Z`
   comment, never the tag alone. Nothing changes in a product until it
   bumps the pin.
-- The night run reviews the day's work (global rules, S.5). The owner then
+- The night run reviews the day's work. The owner then
   pushes it to `ci` and creates tags from a terminal, because sessions cannot
   write to this organisation's repositories; CI runs, and a green run
   promotes `main` by fast-forward. `git-gate` is the only route for session
-  git writes. This repository has no day push and no day scan (global rules,
-  S.1). There is no deploy-on-push.
+  git writes. This repository has no day push and no day scan. There is no
+  deploy-on-push.
 - `deploy/` and `.github/workflows/` are security-sensitive paths: every
   change there gets a security review before it is pushed.
 - The library is Bash, Python 3.11+ standard library and YAML; there is no
