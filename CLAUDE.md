@@ -267,9 +267,9 @@ Rules:
 - The night run reviews the day's work (global rules, S.5). The owner then
   pushes it to `ci` and creates tags from a terminal, because sessions cannot
   write to this organisation's repositories; CI runs, and a green run
-  promotes `main` by fast-forward. `git-gate` is the only
-  route for session git writes. This repository has no day push and no day
-  scan (global rules, S.1). There is no deploy-on-push.
+  promotes `main` by fast-forward. `git-gate` is the only route for session
+  git writes. This repository has no day push and no day scan (global rules,
+  S.1). There is no deploy-on-push.
 - `deploy/` and `.github/workflows/` are security-sensitive paths: every
   change there gets a security review before it is pushed.
 - The library is Bash, Python 3.11+ standard library and YAML; there is no
