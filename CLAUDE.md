@@ -211,7 +211,8 @@ from this file, and `just ci` fails when the copies differ.
 ## Claude Code specifics
 
 - Session git writes go only through `git-gate`. The night run's range
-  reviews read the day's range before the owner pushes it to `ci`. Never write a review marker a
+  reviews read the day's range before the owner pushes it to `ci`. A commit
+  after the reviews needs the reviews again. Never write a review marker a
   review did not produce.
 - Research, web-search and web-fetch sub-agents run on Sonnet. Keep a
   workflow to at most nine sub-agents unless the operator agrees to more.
