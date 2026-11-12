@@ -32,10 +32,6 @@ secrets:
 checks:
     cd checks && python3 -m pytest -q
 
-# Copy the shared block from CLAUDE.md into the other agent files.
-sync-agents:
-    python3 scripts/sync_agents.py
-
 # Runs from the pre-commit hook when defined, never through git-gate. Keep it
 # fast; GitHub CI runs ci, and so does the pre-push hook unless the push is
 # documentation only.

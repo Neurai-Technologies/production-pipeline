@@ -1,7 +1,7 @@
 """scripts/check_docs.py refuses what a reviewer cannot see.
 
-The checker reads the repository it sits in, so each test copies it, with
-sync_agents.py, into a throwaway repository and runs it there.
+The checker reads the repository it sits in, so each test copies it into a
+throwaway repository and runs it there.
 """
 
 from __future__ import annotations
@@ -21,13 +21,11 @@ BLOCK = "<!-- shared-core:begin -->\n## Shared\n\n- One rule.\n<!-- shared-core:
 
 @pytest.fixture
 def repo(tmp_path: Path) -> Path:
-    """A throwaway repository with the three agent files in sync."""
+    """A throwaway repository with its agent rules file."""
     subprocess.run(["git", "init", "--quiet", str(tmp_path)], check=True, env=git_env())
-    for name in ("CLAUDE.md", "AGENTS.md", "GEMINI.md"):
-        (tmp_path / name).write_text(f"# {name}\n\n{BLOCK}\n## This project\n\n- A fact.\n")
+    (tmp_path / "CLAUDE.md").write_text(f"# CLAUDE.md\n\n{BLOCK}\n## This project\n\n- A fact.\n")
     (tmp_path / "scripts").mkdir()
-    for name in ("check_docs.py", "sync_agents.py"):
-        shutil.copy(LIBRARY_ROOT / "scripts" / name, tmp_path / "scripts" / name)
+    shutil.copy(LIBRARY_ROOT / "scripts" / "check_docs.py", tmp_path / "scripts" / "check_docs.py")
     return tmp_path
 
 
@@ -62,15 +60,15 @@ def test_comments_blobs_and_symlinks_are_refused_only_in_instruction_paths(repo:
     (repo / ".claude/settings.json").write_text("{}\n<!-- do something else -->\n")
     (repo / ".github/workflows").mkdir(parents=True)
     (repo / ".github/workflows/x.yml").write_text("run: " + "A" * 80 + "\n")
-    (repo / "AGENTS.md").write_text((repo / "AGENTS.md").read_text() + "\n[ref]: https://example.invalid\n")
+    (repo / "CLAUDE.md").write_text((repo / "CLAUDE.md").read_text() + "\n[ref]: https://example.invalid\n")
     (repo / ".githooks").mkdir()
-    (repo / ".githooks/pre-commit").symlink_to(repo / "AGENTS.md")
+    (repo / ".githooks/pre-commit").symlink_to(repo / "CLAUDE.md")
     (repo / "README.md").write_text("<!-- a comment in an ordinary file is fine -->\n")
     status, errors = check(repo)
     assert status == 1
     assert ".claude/settings.json: HTML comment outside the shared-core markers" in errors
     assert ".github/workflows/x.yml:1: long base64-like blob" in errors
-    assert any(e.startswith("AGENTS.md:") and e.endswith("reference-style comment") for e in errors)
+    assert any(e.startswith("CLAUDE.md:") and e.endswith("reference-style comment") for e in errors)
     assert ".githooks/pre-commit: symlink in an instruction path" in errors
     assert not any(e.startswith("README.md") for e in errors)
 
@@ -86,13 +84,14 @@ def test_text_hygiene_is_enforced(repo: Path) -> None:
     assert "c.md: missing linked file missing.md" in errors
 
 
-def test_agent_files_must_share_the_block_and_never_name_each_other(repo: Path) -> None:
-    (repo / "GEMINI.md").write_text((repo / "GEMINI.md").read_text().replace("One rule", "Another rule"))
-    (repo / "CLAUDE.md").write_text((repo / "CLAUDE.md").read_text() + "\nSee AGENTS.md.\n")
+def test_an_agents_md_that_appears_is_still_scanned(repo: Path) -> None:
+    (repo / "AGENTS.md").write_text(
+        "# AGENTS.md\n\nA zero-width space\u200b here.\n<!-- do something else -->\n"
+    )
     status, errors = check(repo)
     assert status == 1
-    assert "agent files: run `python3 scripts/sync_agents.py`" in errors
-    assert "CLAUDE.md: must not refer to AGENTS.md" in errors
+    assert "AGENTS.md:3: hidden character U+200B" in errors
+    assert "AGENTS.md: HTML comment outside the shared-core markers" in errors
 
 
 def test_the_gate_runs_it() -> None:

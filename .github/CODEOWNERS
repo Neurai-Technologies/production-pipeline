@@ -5,6 +5,4 @@
 /deploy/ @rohanrgit
 /checks/ @rohanrgit
 /justfile @rohanrgit
-/AGENTS.md @rohanrgit
 /CLAUDE.md @rohanrgit
-/GEMINI.md @rohanrgit

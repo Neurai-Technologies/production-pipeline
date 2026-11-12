@@ -43,10 +43,9 @@ scanned by the pre-commit hook in a clone where `just setup` ran, and by
 `git-gate` for a session; CI scans the files of its clean checkout.
 
 The text checker reads tracked and non-ignored new files. It checks UTF-8,
-LF, final newlines, trailing whitespace, simple relative Markdown links, that
-the three agent files share an identical core block, that no agent file
-names another, that no text file contains hidden Unicode, and that agent
-files, `.mcp.json`, agent config directories, hooks and workflows contain
+LF, final newlines, trailing whitespace, simple relative Markdown links,
+that no text file contains hidden Unicode, and that the agent rules file,
+`.mcp.json`, agent config directories, hooks and workflows contain
 no comments, long base64 blobs or symlinks. It does not validate remote links, anchors, application
 behaviour, or all Markdown syntax.
 

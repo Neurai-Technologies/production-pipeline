@@ -1,9 +1,9 @@
 # CLAUDE.md
 
-Repository working agreement for Claude Code. This file is complete on its
-own: everything Claude needs is here or in the docs it names. Codex and Gemini
-have their own files with the same shared block; `just sync-agents` copies it
-from this file, and `just ci` fails when the copies differ.
+Repository working agreement for agents. This file is the repository's one
+rules file for agents: everything an agent needs about this project is here
+or in the docs it names. A tool's general rules come from that tool's own
+global file; other tools read this file for the project's context.
 
 <!-- shared-core:begin -->
 ## Above all else

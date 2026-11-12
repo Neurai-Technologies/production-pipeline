@@ -1,20 +1,19 @@
-"""Check repository text hygiene, Markdown links, agent-file independence, and
-hidden content in files an agent or a hook reads as instructions."""
+"""Check repository text hygiene, Markdown links, and hidden content in files
+an agent or a hook reads as instructions."""
 
 import re
 import subprocess
-import sys
 import unicodedata
 from pathlib import Path
 from urllib.parse import unquote
 
 ROOT = Path(__file__).resolve().parents[1]
-AGENT_FILES = ("CLAUDE.md", "AGENTS.md", "GEMINI.md")
+AGENT_FILES = ("CLAUDE.md",)
 # Files an agent or CI executes or reads as instructions, anywhere in the
 # tree. Hidden characters and comments here are invisible in review but read
 # by the model, so every file under these paths is scanned whatever its name.
 INSTRUCTION_DIRS = (".claude", ".codex", ".gemini", ".github/workflows", ".githooks")
-INSTRUCTION_NAMES = AGENT_FILES + (".mcp.json",)
+INSTRUCTION_NAMES = AGENT_FILES + ("AGENTS.md", "GEMINI.md", ".mcp.json")
 TEXT_SUFFIXES = {
     ".md",
     ".py",
@@ -106,20 +105,6 @@ def check_instruction_content(name: str, content: str, errors: list[str]) -> Non
         errors.append(f"{name}: HTML comment outside the shared-core markers")
 
 
-def check_agent_files(errors: list[str]) -> None:
-    """Each agent file carries the same shared block and never names another."""
-    sys.path.insert(0, str(ROOT / "scripts"))
-    import sync_agents
-
-    if sync_agents.main(check=True) != 0:
-        errors.append("agent files: run `python3 scripts/sync_agents.py`")
-    for name in AGENT_FILES:
-        text = (ROOT / name).read_text(encoding="utf-8")
-        for other in AGENT_FILES:
-            if other != name and other in text:
-                errors.append(f"{name}: must not refer to {other}")
-
-
 def main() -> int:
     """Validate tracked and non-ignored new text files, returning a process status."""
     result = subprocess.run(
@@ -168,7 +153,6 @@ def main() -> int:
                     errors.append(f"{name}: missing linked file {relative}")
         if instruction:
             check_instruction_content(name, content, errors)
-    check_agent_files(errors)
     for error in errors:
         print(error)
     print(f"Checked {checked} text files; {len(errors)} errors.")
