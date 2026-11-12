@@ -23,9 +23,8 @@
   blocked, the owner checks that this repository's own runs on that sha are
   green, then pushes the same sha to `main` by hand.
   `git-gate` is the only route for session git writes. Sessions commit in the
-  day; `code-reviewer` and `security-engineer` review the day's range in a
-  night run before the owner pushes it to `ci`; no session pushes, and there
-  is no day scan.
+  day; the range reviews of a night run read the day's range before the
+  owner pushes it to `ci`; no session pushes, and there is no day scan.
   No deploy-on-push. A release is an immutable tag `vX.Y.Z` on `main`. Release
   owner: the Neurai Technologies Private Limited repository administrator.
 - Licensing and visibility: proprietary ([LICENSE](../LICENSE)); public
