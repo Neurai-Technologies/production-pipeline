@@ -65,12 +65,12 @@ instructions in other agents' files.
   Co-Authored-By trailers.
 - One fix at a time: implement, verify, commit, then start the next. Never
   bundle unrelated changes in one commit.
-- Push is part of delivery: commit verified work and push it before ending a
-  turn unless told not to. With a remote: reviewed work is pushed to `ci`, CI
-  runs, and a green run promotes `main` by fast-forward; never straight to
-  `main`. docs/PROJECT.md says who pushes. Where a push deploys
-  (docs/PROJECT.md), done means the live result is healthy. Never force-push
-  or rewrite shared history.
+- Commit verified work before ending a turn. No session pushes this
+  repository: its work is reviewed in the night run (global rules, S.5), and
+  the owner then pushes it to `ci`, CI runs, and a green run promotes `main`
+  by fast-forward; never straight to `main`. docs/PROJECT.md says who pushes.
+  Where a push deploys (docs/PROJECT.md), done means the live result is
+  healthy. Never force-push or rewrite shared history.
 - State an unpushed count only after `git rev-list --count origin/main..HEAD`.
 - Never bypass hooks (`--no-verify`, `-c core.hooksPath=`) and never write a
   review marker that a review did not produce. If a gate cannot run, that is
@@ -258,12 +258,12 @@ Rules:
 - Consumers pin the full commit SHA of a release tag, with a `# vX.Y.Z`
   comment, never the tag alone. Nothing changes in a product until it
   bumps the pin.
-- Reviewed work is pushed to `ci`; CI runs; a green run promotes `main` by
-  fast-forward. The owner pushes `ci` and creates tags from a terminal,
-  because sessions cannot write to this organisation's repositories.
-  `git-gate` is the only route for session git writes. `lint`,
-  `code-reviewer` and `security-engineer` run once per batch over the range.
-  There is no deploy-on-push.
+- The night run reviews the day's work (global rules, S.5); the owner then
+  pushes it to `ci`; CI runs; a green run promotes `main` by fast-forward.
+  The owner pushes `ci` and creates tags from a terminal, because sessions
+  cannot write to this organisation's repositories. `git-gate` is the only
+  route for session git writes. This repository has no day push and no day
+  scan (global rules, S.1). There is no deploy-on-push.
 - `deploy/` and `.github/workflows/` are security-sensitive paths: every
   change there gets a security review before it is pushed.
 - The library is Bash, Python 3.11+ standard library and YAML; there is no
