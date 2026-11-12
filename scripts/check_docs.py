@@ -8,12 +8,13 @@ from pathlib import Path
 from urllib.parse import unquote
 
 ROOT = Path(__file__).resolve().parents[1]
-AGENT_FILES = ("CLAUDE.md",)
 # Files an agent or CI executes or reads as instructions, anywhere in the
 # tree. Hidden characters and comments here are invisible in review but read
 # by the model, so every file under these paths is scanned whatever its name.
 INSTRUCTION_DIRS = (".claude", ".codex", ".gemini", ".github/workflows", ".githooks")
-INSTRUCTION_NAMES = AGENT_FILES + ("AGENTS.md", "GEMINI.md", ".mcp.json")
+# AGENTS.md and GEMINI.md are not used here; they stay listed so a stray copy
+# is still scanned.
+INSTRUCTION_NAMES = ("CLAUDE.md", "AGENTS.md", "GEMINI.md", ".mcp.json")
 TEXT_SUFFIXES = {
     ".md",
     ".py",
