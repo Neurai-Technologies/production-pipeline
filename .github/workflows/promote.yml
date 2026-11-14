@@ -28,7 +28,7 @@ jobs:
     permissions:
       contents: write
       actions: read
-    uses: Neurai-Technologies/production-pipeline/.github/workflows/reusable-promote.yml@10adbd73a141a163ae937146f0e0987fa63e50dc # v0.1.7
+    uses: Neurai-Technologies/production-pipeline/.github/workflows/reusable-promote.yml@6bff410a31c95b34900c7eec6811b920375dc89c # v0.1.9
     with:
       source-branch: ci
       target-branch: main
