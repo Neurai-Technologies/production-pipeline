@@ -74,8 +74,10 @@ def test_the_harness_can_tell_an_inherited_lock(tmp_path: Path) -> None:
         # `trap '' TERM` ignores SIGTERM, and sleep inherits the ignored
         # disposition, so only the -k SIGKILL a second after the limit ends
         # the pair: timeout then exits 137, which the script's checks treat as
-        # a timeout alongside 124.
-        ("trap '' TERM\nsleep 30", "exit 137", 5.5),
+        # a timeout alongside 124. `exec` makes sleep the process timeout
+        # started, so the KILL reaches it even where timeout signals only its
+        # child, not the group (uutils timeout on Ubuntu 26.04, uutils#15768).
+        ("trap '' TERM\nexec sleep 30", "exit 137", 5.5),
     ],
     ids=["honours-TERM", "ignores-TERM"],
 )
