@@ -222,7 +222,7 @@ post_deploy_status() {
             return 0
             ;;
     esac
-    body=$(jq -n --arg c "$ctx" --arg d "Deployed and healthy at $(date -u +%Y-%m-%dT%H:%MZ)" \
+    body=$(jq -nc --arg c "$ctx" --arg d "Deployed and healthy at $(date -u +%Y-%m-%dT%H:%MZ)" \
         '{state:"success",context:$c,description:$d}') || { log "deploy status post failed"; return 0; }
     curl -fsS --max-time 10 -X POST -H "Accept: application/vnd.github+json" -d "$body" \
         "${API}/statuses/${sha}" -K - <<<"header = \"Authorization: Bearer ${token}\"" >/dev/null 2>&1 \

@@ -876,12 +876,6 @@ def status_run(
     return run(harness, f"{settings}post_deploy_status {STATUS_SHA}{more}")
 
 
-def status_calls(harness: dict[str, Path]) -> tuple[str, str]:
-    """The one curl call as (argv, stdin); jq prints the body over several lines."""
-    argv, stdin = "\n".join(calls(harness)).split("\nstdin: ")
-    return argv, f"stdin: {stdin}"
-
-
 def deploy_body() -> str:
     text = LOOP.read_text(encoding="utf-8")
     return text[text.index("deploy() {") : text.index("app_changed() {")]
@@ -889,8 +883,7 @@ def deploy_body() -> str:
 
 def test_a_healthy_deploy_posts_one_success_status(harness: dict[str, Path]) -> None:
     status_run(harness)
-    argv, _ = status_calls(harness)
-    assert argv.count("argv:") == 1
+    argv, _ = calls(harness)
     assert "POST" in argv and f"/statuses/{STATUS_SHA}" in argv
     body = json.loads(argv.split(" -d ", 1)[1].split(" https://", 1)[0])
     assert set(body) == {"state", "context", "description"}
@@ -945,7 +938,7 @@ def test_a_failed_status_post_is_one_log_line_and_the_deploy_goes_on(harness: di
 def test_the_status_token_travels_by_stdin_and_is_never_logged(harness: dict[str, Path]) -> None:
     harness["body"].write_text(f"response {STATUS_TOKEN}")
     out = status_run(harness)
-    argv, stdin = status_calls(harness)
+    argv, stdin = calls(harness)
     assert STATUS_TOKEN not in out and STATUS_TOKEN not in argv and "-K -" in argv
     assert stdin == f'stdin: header = "Authorization: Bearer {STATUS_TOKEN}"'
     assert "response" not in out
