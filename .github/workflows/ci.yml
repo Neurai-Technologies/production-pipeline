@@ -54,7 +54,7 @@ jobs:
           target="$RUNNER_TEMP/ci-cd-library-tools"
           mkdir -p "$target"
           # The API asset link, as the release page front end can 504 while the API serves; the sha256 check below pins the bytes.
-          curl --proto '=https' --proto-redir '=https' -fsSL --retry 5 --retry-delay 10 -H "Authorization: Bearer $GH_TOKEN" -H 'Accept: application/octet-stream' https://api.github.com/repos/gitleaks/gitleaks/releases/assets/378332058 -o "$target/gitleaks.tar.gz"
+          printf 'header = "Authorization: Bearer %s"\n' "$GH_TOKEN" | curl -q -K - --proto '=https' --proto-redir '=https' -fsSL --retry 5 --retry-delay 10 -H 'Accept: application/octet-stream' https://api.github.com/repos/gitleaks/gitleaks/releases/assets/378332058 -o "$target/gitleaks.tar.gz"
           printf '%s  %s\n' '551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb' "$target/gitleaks.tar.gz" | sha256sum -c -
           tar -xzf "$target/gitleaks.tar.gz" -C "$target" gitleaks
           printf '%s\n' "$target" >> "$GITHUB_PATH"

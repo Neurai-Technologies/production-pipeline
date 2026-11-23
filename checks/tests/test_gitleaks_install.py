@@ -48,9 +48,9 @@ def curl_line(lines: list[str]) -> int:
         lines: The step's `run` lines, stripped.
 
     Returns:
-        The index of the line that starts with curl.
+        The index of the line that pipes the token config into curl.
     """
-    found = [i for i, line in enumerate(lines) if line.startswith("curl ")]
+    found = [i for i, line in enumerate(lines) if " | curl " in line]
     assert len(found) == 1
     return found[0]
 
@@ -63,10 +63,14 @@ def test_install_downloads_the_api_asset_with_the_job_token(path: Path) -> None:
     assert "github.token" not in run
     assert "releases/download" not in run
     lines = [line.strip() for line in run.splitlines()]
-    curl = lines[curl_line(lines)]
+    line = lines[curl_line(lines)]
+    config, curl = line.split(" | ")
+    assert config == 'printf \'header = "Authorization: Bearer %s"\\n\' "$GH_TOKEN"'
+    assert curl.startswith("curl -q -K - ")
     assert ASSET_URL in curl
     assert "-H 'Accept: application/octet-stream'" in curl
-    assert '-H "Authorization: Bearer $GH_TOKEN"' in curl
+    assert '-H "Authorization' not in curl
+    assert "GH_TOKEN" not in curl
     assert "--proto '=https' --proto-redir '=https'" in curl
     assert "-fsSL" in curl
     assert "--retry 5 --retry-delay 10" in curl
