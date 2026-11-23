@@ -207,6 +207,17 @@ SHA differs, stop: the tag does not exist or is not the release you meant.
    pathspec in it that matches no file at the commit under consideration
    fails the attempt with an alert; it is never counted as no app change.
 
+   Optionally the deployer posts one commit status on the deployed SHA,
+   so anyone with a read-only token can see what is live. It is off unless
+   both `DEPLOY_STATUS_TOKEN` and `DEPLOY_STATUS_CONTEXT` are set. The
+   token is a separate fine-grained token with "Commit statuses: write" on
+   the one repository, kept in the operator's `.env`, never in
+   `product.settings`; the hooks do not see it. The context is the status
+   name, set through compose `environment:`. The status says "Deployed and
+   healthy at" and a UTC time. Only a deploy that passed its health checks
+   posts it; a push that changes no app code is recorded without a status.
+   A failed post is logged and never fails the deploy.
+
    The deployer runs these hooks, the compose file and `product.settings`
    from its deploy-branch clone, with the docker socket and the `.env`
    secrets. Whoever can push the branch humans push controls the VM, so
