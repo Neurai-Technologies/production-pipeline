@@ -159,6 +159,11 @@ services:
       # that goes missing and when its own image no longer matches the
       # repository; unset, it only logs.
       DEPLOY_ALERT_URL: ${DEPLOY_ALERT_URL:-}
+      # Optional "deployed" commit status after each healthy deploy; off unless
+      # both are set. The token is a separate one ("Commit statuses: write" on
+      # the one repository), not the read-only deploy token.
+      DEPLOY_STATUS_TOKEN: ${DEPLOY_STATUS_TOKEN:-}
+      DEPLOY_STATUS_CONTEXT: ${DEPLOY_STATUS_CONTEXT:-}
       # How long the site build may take before it is reported missing.
       DEPLOY_SITE_GRACE_SECONDS: ${DEPLOY_SITE_GRACE_SECONDS:-1500}
       DEPLOY_ENV_DIR: /host-env

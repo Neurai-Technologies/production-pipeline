@@ -10,6 +10,7 @@ env_file would supply.
 from __future__ import annotations
 
 import json
+import re
 import shlex
 import shutil
 import subprocess
@@ -32,6 +33,7 @@ NAMES = (
     "forget",
     "subject_of",
     "notify_deployed",
+    "post_deploy_status",
     "notify_no_app_change",
     "ci_failures",
     "check_ci",
@@ -861,3 +863,117 @@ def test_the_site_hook_never_sees_the_token_or_the_alert_url(harness: dict[str, 
     assert "fake-token" in out, "the control: the token is exported to children"
     assert hook_calls(harness) == [f"{a}|"]
     assert Path(f"{harness['hook_calls']}.vars").read_text() == "unset unset"
+
+
+STATUS_TOKEN = "github_pat_FAKE0123"
+STATUS_SHA = "a" * 40
+
+
+def status_run(
+    harness: dict[str, Path], token: str = STATUS_TOKEN, context: str = "deploy/live", more: str = ""
+) -> str:
+    settings = f"DEPLOY_STATUS_TOKEN={shlex.quote(token)}; DEPLOY_STATUS_CONTEXT={shlex.quote(context)}; "
+    return run(harness, f"{settings}post_deploy_status {STATUS_SHA}{more}")
+
+
+def status_calls(harness: dict[str, Path]) -> tuple[str, str]:
+    """The one curl call as (argv, stdin); jq prints the body over several lines."""
+    argv, stdin = "\n".join(calls(harness)).split("\nstdin: ")
+    return argv, f"stdin: {stdin}"
+
+
+def deploy_body() -> str:
+    text = LOOP.read_text(encoding="utf-8")
+    return text[text.index("deploy() {") : text.index("app_changed() {")]
+
+
+def test_a_healthy_deploy_posts_one_success_status(harness: dict[str, Path]) -> None:
+    status_run(harness)
+    argv, _ = status_calls(harness)
+    assert argv.count("argv:") == 1
+    assert "POST" in argv and f"/statuses/{STATUS_SHA}" in argv
+    body = json.loads(argv.split(" -d ", 1)[1].split(" https://", 1)[0])
+    assert set(body) == {"state", "context", "description"}
+    assert body["state"] == "success" and body["context"] == "deploy/live"
+    assert re.fullmatch(r"Deployed and healthy at \d{4}-\d\d-\d\dT\d\d:\d\dZ", body["description"])
+
+
+@pytest.mark.parametrize(
+    "settings",
+    [
+        "",
+        f"DEPLOY_STATUS_TOKEN={STATUS_TOKEN};",
+        "DEPLOY_STATUS_CONTEXT=deploy/live;",
+        f"DEPLOY_STATUS_TOKEN={STATUS_TOKEN}; DEPLOY_STATUS_CONTEXT=;",
+        "DEPLOY_STATUS_TOKEN=; DEPLOY_STATUS_CONTEXT=deploy/live;",
+    ],
+)
+def test_the_status_is_off_unless_both_settings_are_set(harness: dict[str, Path], settings: str) -> None:
+    out = run(harness, f"set -u; {settings} post_deploy_status {STATUS_SHA}; echo still-running")
+    assert "still-running" in out and calls(harness) == []
+
+
+@pytest.mark.parametrize(
+    ("token", "context"),
+    [
+        (STATUS_TOKEN, 'deploy"x'),
+        (STATUS_TOKEN, "a b"),
+        ("tok\nen", "deploy/live"),
+        ('tok"en', "deploy/live"),
+    ],
+)
+def test_a_bad_context_or_token_is_one_log_line_and_no_call(
+    harness: dict[str, Path], token: str, context: str
+) -> None:
+    out = status_run(harness, token=token, context=context, more="; echo still-running")
+    assert calls(harness) == [] and "still-running" in out
+    assert out.count("unexpected characters; deploy status off") == 1
+
+
+def test_a_failed_status_post_is_one_log_line_and_the_deploy_goes_on(harness: dict[str, Path]) -> None:
+    harness["status"].write_text("22\n")
+    out = run(
+        harness,
+        f"set -euo pipefail; DEPLOY_STATUS_TOKEN={STATUS_TOKEN}; DEPLOY_STATUS_CONTEXT=deploy/live; "
+        f"post_deploy_status {STATUS_SHA}; mark_site_pending {STATUS_SHA}; echo still-running",
+    )
+    assert "still-running" in out and out.count("deploy status post failed") == 1
+    assert harness["site_pending"].exists()
+    assert STATUS_TOKEN not in out
+
+
+def test_the_status_token_travels_by_stdin_and_is_never_logged(harness: dict[str, Path]) -> None:
+    harness["body"].write_text(f"response {STATUS_TOKEN}")
+    out = status_run(harness)
+    argv, stdin = status_calls(harness)
+    assert STATUS_TOKEN not in out and STATUS_TOKEN not in argv and "-K -" in argv
+    assert stdin == f'stdin: header = "Authorization: Bearer {STATUS_TOKEN}"'
+    assert "response" not in out
+
+
+def test_the_status_is_posted_only_after_a_recorded_healthy_deploy() -> None:
+    """A deploy that fails or is refused returns before the marker line, so
+    the post, which sits after it, never runs; so is a rollback, which
+    schema_compatible refuses before compose up."""
+    body = deploy_body()
+    call = body.index('post_deploy_status "$sha"')
+    assert body.count('post_deploy_status "$sha"') == 1
+    for earlier in (
+        "schema_compatible || return 1",
+        "up -d --no-build --remove-orphans || return 1",
+        'FAILED_STEP="${API_SERVICE} readiness"',
+        'FAILED_STEP="worker readiness"',
+        'echo "$sha" 2>/dev/null >"$STATE" || return 1',
+        'notify_deployed "$sha"',
+    ):
+        assert body.index(earlier) < call, earlier
+    assert call < body.index('mark_site_pending "$sha"')
+    assert LOOP.read_text(encoding="utf-8").count('post_deploy_status "$sha"') == 1, "no other path posts"
+
+
+def test_the_hook_steps_run_without_the_status_token() -> None:
+    lines = [
+        line for line in LOOP.read_text(encoding="utf-8").splitlines() if "env -u GITHUB_DEPLOY_TOKEN" in line
+    ]
+    assert len(lines) == 3
+    assert all("-u DEPLOY_ALERT_URL -u DEPLOY_STATUS_TOKEN" in line for line in lines)

@@ -48,6 +48,8 @@ NOT_PRODUCT_KEYS = {
     "BACKUP_R2_ACCESS_KEY_ID": "a secret: the operator's .env, through compose environment:",
     "BACKUP_R2_SECRET_ACCESS_KEY": "a secret: the operator's .env, through compose environment:",
     "DEPLOY_ALERT_URL": "a secret (bot token in the URL): the operator's .env",
+    "DEPLOY_STATUS_TOKEN": "a secret: the operator's .env",
+    "DEPLOY_STATUS_CONTEXT": "the operator's .env, through compose environment:",
     "DEPLOY_POLL_SECONDS": "the operator's .env, through compose environment:",
     "DEPLOY_SITE_GRACE_SECONDS": "the operator's .env, through compose environment:",
     "BACKUP_KEEP_DAYS": "the operator's .env, through compose environment:",

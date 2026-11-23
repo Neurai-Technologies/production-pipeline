@@ -200,6 +200,36 @@ notify_deployed() {
     fi
 }
 
+post_deploy_status() {
+    # One "deployed" commit status on the sha, visible to a read-only token.
+    # Off unless both settings are set; the token is a separate one with
+    # "Commit statuses: write" and travels by stdin config like the others.
+    # Never fatal: a status that cannot be posted costs one log line.
+    local sha="$1" ctx="${DEPLOY_STATUS_CONTEXT:-}" token="${DEPLOY_STATUS_TOKEN:-}" body
+    if [ -z "$ctx" ] || [ -z "$token" ]; then
+        return 0
+    fi
+    # Both are spliced into a request (the token into a curl config line).
+    case "$ctx" in
+        *[!A-Za-z0-9._:/-]*)
+            log "DEPLOY_STATUS_CONTEXT has unexpected characters; deploy status off"
+            return 0
+            ;;
+    esac
+    case "$token" in
+        *[!A-Za-z0-9_]*)
+            log "DEPLOY_STATUS_TOKEN has unexpected characters; deploy status off"
+            return 0
+            ;;
+    esac
+    body=$(jq -n --arg c "$ctx" --arg d "Deployed and healthy at $(date -u +%Y-%m-%dT%H:%MZ)" \
+        '{state:"success",context:$c,description:$d}') || { log "deploy status post failed"; return 0; }
+    curl -fsS --max-time 10 -X POST -H "Accept: application/vnd.github+json" -d "$body" \
+        "${API}/statuses/${sha}" -K - <<<"header = \"Authorization: Bearer ${token}\"" >/dev/null 2>&1 \
+        || log "deploy status post failed"
+    return 0
+}
+
 notify_no_app_change() {
     # Says what is true of both cases rather than naming one of them. This
     # used to report every skip as a site-only change, and a phone-app commit
@@ -324,7 +354,7 @@ run_site_hook() {
     log "running site release hook ${SITE_HOOK}"
     # From the clone's root, so the hook's relative paths are the repository's,
     # and without the GitHub token or the alert URL, which a hook never needs.
-    if (cd "$SRC" && env -u GITHUB_DEPLOY_TOKEN -u DEPLOY_ALERT_URL \
+    if (cd "$SRC" && env -u GITHUB_DEPLOY_TOKEN -u DEPLOY_ALERT_URL -u DEPLOY_STATUS_TOKEN \
         timeout 900 "$SRC/$SITE_HOOK" "$sha" "$before"); then
         echo "$sha" 2>/dev/null >"$SITE_HOOKED" || log "could not write ${SITE_HOOKED}"
         log "site release hook done for ${before:0:7}..${sha:0:7}"
@@ -525,7 +555,7 @@ deploy() {
             return 1
         fi
         log "running pre-deploy hook ${PRE_HOOK}"
-        (cd "$SRC" && env -u GITHUB_DEPLOY_TOKEN -u DEPLOY_ALERT_URL \
+        (cd "$SRC" && env -u GITHUB_DEPLOY_TOKEN -u DEPLOY_ALERT_URL -u DEPLOY_STATUS_TOKEN \
             timeout 900 "$SRC/$PRE_HOOK" "$sha") || return 1
     fi
     # -p COMPOSE_PROJECT: pin the project name so this always adopts the one running
@@ -574,7 +604,7 @@ deploy() {
         fi
         log "running post-deploy hook ${HOOK}"
         # Without the GitHub token or the alert URL, which a hook never needs.
-        (cd "$SRC" && env -u GITHUB_DEPLOY_TOKEN -u DEPLOY_ALERT_URL \
+        (cd "$SRC" && env -u GITHUB_DEPLOY_TOKEN -u DEPLOY_ALERT_URL -u DEPLOY_STATUS_TOKEN \
             timeout 900 "$SRC/$HOOK" "$sha") || return 1
     fi
     # Starting a container is not readiness. Do not advance the release marker
@@ -603,6 +633,7 @@ deploy() {
     docker image prune -f >/dev/null || true
     log "deployed ${sha}"
     notify_deployed "$sha"
+    post_deploy_status "$sha"
     mark_site_pending "$sha"
 }
 
